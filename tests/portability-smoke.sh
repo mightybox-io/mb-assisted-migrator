@@ -106,7 +106,19 @@ test ! -e "$T/db-rollback/restored"
 test -f "$T/db-rollback/database-before.sql"
 test -f "$T/db-rollback/target-root"
 test -f "$T/db-rollback/added-files"
-PATH="$T/bin:$PATH" "$ROOT_DIR/bin/mb-migrator" rollback --target-root="$T/target" --rollback-dir="$T/db-rollback" --yes
+mkdir -p "$T/rollback-bin"
+export REAL_RSYNC="$(command -v rsync)"
+cat > "$T/rollback-bin/rsync" <<'RSYNC'
+#!/usr/bin/env bash
+set -eu
+case " $* " in
+  *' --omit-dir-times '*) ;;
+  *) echo 'rollback rsync must omit managed directory times' >&2; exit 88 ;;
+esac
+exec "$REAL_RSYNC" "$@"
+RSYNC
+chmod +x "$T/rollback-bin/rsync"
+PATH="$T/rollback-bin:$T/bin:$PATH" "$ROOT_DIR/bin/mb-migrator" rollback --target-root="$T/target" --rollback-dir="$T/db-rollback" --yes
 grep -q 'CREATE TABLE old_table' "$TEST_DB_IMPORTED"
 test -f "$T/db-rollback/restored"
 test -f "$T/target/wp-content/mu-plugins/mb-migrator-safety.php"

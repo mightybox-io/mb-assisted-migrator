@@ -55,7 +55,10 @@ if [[ "$command_name" == rollback ]]; then
     wpcli_import_db "$TARGET_ROOT" "$ROLLBACK_DIR/database-before.sql" 1 0
   fi
   while IFS= read -r -d '' path; do rm -f "$TARGET_ROOT/$path"; done < "$ROLLBACK_DIR/added-files"
-  rsync -rlt --checksum --no-owner --no-group "$ROLLBACK_DIR/files/" "$TARGET_ROOT/"
+  # Managed hosts may allow file restoration while denying directory timestamp
+  # changes at the document root. Preserve file mtimes, but do not let those
+  # host-owned directory attributes turn a complete rollback into rsync 23.
+  rsync -rlt --omit-dir-times --checksum --no-owner --no-group "$ROLLBACK_DIR/files/" "$TARGET_ROOT/"
   touch "$ROLLBACK_DIR/restored"
   log "Rollback applied. Migration safety state was preserved."
   exit 0
