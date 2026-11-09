@@ -107,7 +107,8 @@ test -f "$T/db-rollback/database-before.sql"
 test -f "$T/db-rollback/target-root"
 test -f "$T/db-rollback/added-files"
 mkdir -p "$T/rollback-bin"
-export REAL_RSYNC="$(command -v rsync)"
+REAL_RSYNC="$(command -v rsync)"
+export REAL_RSYNC
 cat > "$T/rollback-bin/rsync" <<'RSYNC'
 #!/usr/bin/env bash
 set -eu
