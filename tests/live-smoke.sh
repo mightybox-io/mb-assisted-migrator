@@ -153,6 +153,16 @@ test -f "$FAKE_RSYNC_MARKER"
 test -f "$TARGET/wp-content/uploads/2026/07/rsync.txt"
 test "$(find "$STATE/migrations" -path '*/snapshots/*.tar.gz' -type f | wc -l | tr -d ' ')" -eq 3
 
+SYMLINK_SOURCE="$TEST_ROOT/managed-source-link"
+ln -s "$SOURCE" "$SYMLINK_SOURCE"
+PATH="$FAKE_BIN:$PATH" bash "$ROOT_DIR/lib/remote-source.sh" \
+  preflight "$SYMLINK_SOURCE" native > "$TEST_ROOT/symlink-source-preflight.log"
+symlink_source_kb="$(awk -F= '$1 == "files_kb" {print $2}' "$TEST_ROOT/symlink-source-preflight.log")"
+if [[ ! "$symlink_source_kb" =~ ^[0-9]+$ || "$symlink_source_kb" -eq 0 ]]; then
+  printf 'managed symlink source root produced an invalid zero-byte capacity estimate\n' >&2
+  exit 1
+fi
+
 GRIDPANE_SITE="$TEST_ROOT/gridpane.example.test"
 GRIDPANE_SOURCE="$GRIDPANE_SITE/htdocs"
 mkdir -p "$GRIDPANE_SOURCE/wp-content/uploads"
