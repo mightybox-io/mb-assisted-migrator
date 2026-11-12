@@ -5,7 +5,7 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/mb-relay-test.XXXXXX")"
 # shellcheck disable=SC2154 # status is assigned inside this EXIT trap.
 trap 'status=$?; if [[ "$status" -ne 0 ]]; then cat "$T/"*.log >&2; fi; rm -rf "$T"' EXIT
 export RELAY_TEST_ROOT="$T"
-mkdir -p "$T/source/wp-content/uploads" "$T/target/wp-content" "$T/bin" "$T/home"
+mkdir -p "$T/source/wp-content/uploads" "$T/source/wp-content/mu-plugins/wpengine-common" "$T/target/wp-content" "$T/bin" "$T/home"
 printf 'test-key\n' > "$T/source-key"
 printf 'test-key\n' > "$T/destination-key"
 printf 'source host key\n' > "$T/source-known-hosts"
@@ -13,6 +13,8 @@ printf 'destination host key\n' > "$T/destination-known-hosts"
 printf '<?php\n' > "$T/source/wp-config.php"
 printf '<?php\n' > "$T/target/wp-config.php"
 printf first > "$T/source/wp-content/uploads/test.txt"
+printf managed > "$T/source/wp-content/mu-plugins/wpengine-common/loader.php"
+printf custom > "$T/source/wp-content/mu-plugins/customer-mu.php"
 ln -s test.txt "$T/source/wp-content/uploads/alias.txt"
 cat > "$T/bin/wp" <<'WP'
 #!/usr/bin/env bash
@@ -101,15 +103,20 @@ doctor_output="$("$ROOT_DIR/bin/mb-migrator" relay-doctor source@test \
   --destination=dest@test --source-root="$T/source" --target-root="$T/target" \
   --source-identity="$T/source-key" --destination-identity="$T/destination-key" \
   --source-known-hosts="$T/source-known-hosts" --destination-known-hosts="$T/destination-known-hosts" \
+  --normalization-profile=wp-engine-v1 \
   --json)"
 grep -q '"status":"ready"' <<< "$doctor_output"
 grep -q '"schema_version":1' <<< "$doctor_output"
 grep -q '"content_state":"clean"' <<< "$doctor_output"
+grep -q '"profile_id":"wp-engine-v1"' <<< "$doctor_output"
+grep -q '"rule_ids":\["wpengine.mu.wpengine-common-v1"\]' <<< "$doctor_output"
+grep -q '"unknown_components_count":1' <<< "$doctor_output"
 test ! -e "$T/state"
 if RELAY_TARGET_MODIFIED=1 "$ROOT_DIR/bin/mb-migrator" relay-doctor source@test \
   --destination=dest@test --source-root="$T/source" --target-root="$T/target" \
   --source-identity="$T/source-key" --destination-identity="$T/destination-key" \
   --source-known-hosts="$T/source-known-hosts" --destination-known-hosts="$T/destination-known-hosts" \
+  --normalization-profile=wp-engine-v1 \
   --json > "$T/modified-doctor.log"; then
   echo 'Modified destination unexpectedly passed preflight' >&2; exit 1
 fi
@@ -119,16 +126,22 @@ run_relay() {
     --target-root="$T/target" --state-dir="$T/state" \
     --source-identity="$T/source-key" --destination-identity="$T/destination-key" \
     --source-known-hosts="$T/source-known-hosts" --destination-known-hosts="$T/destination-known-hosts" \
+    --normalization-profile=wp-engine-v1 \
     --db-import=no --mu-plugins=skip --root-extras=skip --yes "$@"
 }
 run_relay > "$T/first.log"
 [[ "$(cat "$T/target/wp-content/uploads/test.txt")" == first ]]
+test ! -e "$T/state"/*/package/htdocs/wp-content/mu-plugins/wpengine-common
+grep -q '^profile_id=wp-engine-v1$' "$T/state"/*/package/mb-migrator-normalization-v1
+grep -q '^rule=wpengine.mu.wpengine-common-v1|excluded$' "$T/state"/*/package/mb-migrator-normalization-v1
+grep -q '^unknown_components_count=1$' "$T/state"/*/package/mb-migrator-normalization-v1
 verify_relay() {
   "$ROOT_DIR/bin/mb-migrator" relay-verify source@test --destination=dest@test --source-root="$T/source" \
     --target-root="$T/target" --run-id=019a4dc8-d9ff-73f2-8e98-2e6905994c10 \
     --expected-url=https://source.example.test --expected-safety=disabled \
     --source-identity="$T/source-key" --destination-identity="$T/destination-key" \
     --source-known-hosts="$T/source-known-hosts" --destination-known-hosts="$T/destination-known-hosts" \
+    --normalization-profile=wp-engine-v1 \
     --json
 }
 verify_relay > "$T/verified.json"
@@ -138,6 +151,9 @@ grep -q '"run_id":"019a4dc8-d9ff-73f2-8e98-2e6905994c10"' "$T/verified.json"
 grep -q '"media":true' "$T/verified.json"
 grep -q '"rollback":true' "$T/verified.json"
 grep -q '"public_https":true' "$T/verified.json"
+grep -q '"profile_id":"wp-engine-v1"' "$T/verified.json"
+grep -q '"rule_id":"wpengine.mu.wpengine-common-v1","outcome":"excluded"' "$T/verified.json"
+grep -q '"unknown_components_count":1' "$T/verified.json"
 printf corrupt > "$T/target/wp-content/uploads/test.txt"
 if verify_relay > "$T/corrupt-verification.json"; then
   echo 'Corrupt destination media unexpectedly verified' >&2; exit 1

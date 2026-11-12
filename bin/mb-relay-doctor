@@ -4,6 +4,7 @@ umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/util.sh"
+source "$ROOT_DIR/lib/provider-profile.sh"
 set_log_context relay-doctor preflight
 
 usage() {
@@ -15,6 +16,7 @@ Non-mutating intermediary preflight:
   --source-identity=PATH --destination-identity=PATH
   --source-known-hosts=PATH --destination-known-hosts=PATH
   --source-db-method=auto|wp-cli|native
+  --normalization-profile=none|wp-engine-v1
   --json                      Emit one structured result on stdout
 EOF
 }
@@ -29,11 +31,24 @@ json_escape() {
   printf '%s' "$value"
 }
 
+rule_ids_json() {
+  local csv="$1" item first=yes
+  printf '['
+  IFS=',' read -r -a items <<< "$csv"
+  for item in "${items[@]}"; do
+    [[ -n "$item" && "$item" =~ ^[a-z0-9.-]+$ ]] || continue
+    [[ "$first" == yes ]] || printf ','
+    printf '"%s"' "$item"
+    first=no
+  done
+  printf ']'
+}
+
 emit_result() {
   local status="$1" reason="$2" message="$3" source_wp="${4:-unknown}" source_rsync="${5:-unknown}"
   local target_wp="${6:-unknown}" available_kb="${7:-0}" destination_content="${8:-unknown}" source_files_kb="${9:-0}"
   if [[ "$json" == yes ]]; then
-    printf '{"schema_version":1,"tool_version":"%s","status":"%s","reason_code":%s,"message":"%s","source":{"wp_cli":"%s","rsync":"%s","files_kb":%s},"destination":{"wordpress":"%s","content_state":"%s","rsync":"available","available_kb":%s}}\n' \
+    printf '{"schema_version":1,"tool_version":"%s","status":"%s","reason_code":%s,"message":"%s","source":{"wp_cli":"%s","rsync":"%s","files_kb":%s},"destination":{"wordpress":"%s","content_state":"%s","rsync":"available","available_kb":%s},"normalization":{"profile_id":"%s","rule_ids":%s,"unknown_components_count":%s}}\n' \
       "$(json_escape "$(<"$ROOT_DIR/VERSION")")" \
       "$(json_escape "$status")" \
       "$([[ -z "$reason" ]] && printf null || printf '"%s"' "$(json_escape "$reason")")" \
@@ -43,7 +58,10 @@ emit_result() {
       "$source_files_kb" \
       "$(json_escape "$target_wp")" \
       "$(json_escape "$destination_content")" \
-      "$available_kb"
+      "$available_kb" \
+      "$(json_escape "${normalization_profile:-none}")" \
+      "$(rule_ids_json "${normalization_rule_ids:-}")" \
+      "${normalization_unknown_count:-0}"
   else
     if [[ "$status" == ready ]]; then log "$message"; else warn "$message"; fi
   fi
@@ -53,7 +71,7 @@ if [[ "${1:-}" == --help || $# -eq 0 ]]; then usage; exit 0; fi
 source_host="$1"; shift
 destination=""; source_root=""; target_root=""; source_port=22; destination_port=22
 source_identity=""; destination_identity=""; source_known_hosts=""; destination_known_hosts=""
-method=auto; json=no
+method=auto; normalization_profile=none; json=no
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --destination=*) destination="${1#*=}" ;;
@@ -66,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     --source-known-hosts=*) source_known_hosts="${1#*=}" ;;
     --destination-known-hosts=*) destination_known_hosts="${1#*=}" ;;
     --source-db-method=*) method="${1#*=}" ;;
+    --normalization-profile=*) normalization_profile="${1#*=}" ;;
     --json) json=yes ;;
     *) emit_result blocked migration.preflight_invalid "Unknown relay preflight option."; exit 2 ;;
   esac
@@ -88,6 +107,7 @@ for port in "$source_port" "$destination_port"; do
   fi
 done
 case "$method" in auto|wp-cli|native) ;; *) emit_result blocked migration.preflight_invalid "Invalid source database method."; exit 2 ;; esac
+normalization_profile_validate "$normalization_profile" || { emit_result blocked migration.preflight_invalid "Invalid normalization profile."; exit 2; }
 
 for path in "$source_identity" "$destination_identity" "$source_known_hosts" "$destination_known_hosts"; do
   if [[ -n "$path" && ( ! -f "$path" || -L "$path" ) ]]; then
@@ -103,7 +123,8 @@ dest_ssh=(-p "$destination_port" -o BatchMode=yes -o ConnectTimeout=20 -o Server
 [[ -z "$destination_known_hosts" ]] || dest_ssh+=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$destination_known_hosts")
 
 source_output=""
-if ! source_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight "$source_root" "$method" < "$ROOT_DIR/lib/remote-source.sh" 2>/dev/null)"; then
+mapfile -t normalization_args < <(normalization_profile_remote_args "$normalization_profile")
+if ! source_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight "$source_root" "$method" "${normalization_args[@]}" < "$ROOT_DIR/lib/remote-source.sh" 2>/dev/null)"; then
   emit_result blocked migration.source_preflight_failed "Source WordPress preflight failed. Check source access, document root, database export capability, and multisite status."
   exit 1
 fi
@@ -117,11 +138,14 @@ value_for() { printf '%s\n' "$1" | awk -F= -v key="$2" '$1 == key {sub(/^[^=]*=/
 source_wp="$(value_for "$source_output" wp_cli)"
 source_rsync="$(value_for "$source_output" rsync)"
 source_files_kb="$(value_for "$source_output" files_kb)"
+normalization_rule_ids="$(value_for "$source_output" normalization_rule_ids)"
+normalization_unknown_count="$(value_for "$source_output" normalization_unknown_count)"
 target_wp="$(value_for "$target_output" wp_state)"
 target_content="$(value_for "$target_output" content_state)"
 available_kb="$(value_for "$target_output" available_kb)"
 [[ "$available_kb" =~ ^[0-9]+$ ]] || available_kb=0
 [[ "$source_files_kb" =~ ^[0-9]+$ ]] || source_files_kb=0
+[[ "$normalization_unknown_count" =~ ^[0-9]+$ ]] || normalization_unknown_count=0
 
 if [[ "$target_wp" != installed ]]; then
   emit_result blocked migration.destination_wordpress_unavailable "The destination does not have a usable WordPress installation." "$source_wp" "$source_rsync" "$target_wp" "$available_kb" "$target_content" "$source_files_kb"

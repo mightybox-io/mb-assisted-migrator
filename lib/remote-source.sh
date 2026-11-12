@@ -4,6 +4,8 @@ set -euo pipefail
 command_name="${1:-}"
 source_root="${2:-}"
 db_method="${3:-auto}"
+normalization_profile="${4:-none}"
+normalization_rule_tokens=("${@:5}")
 source_config=""
 
 fail() {
@@ -194,6 +196,45 @@ check_database_export() {
   esac
 }
 
+normalization_scan() {
+  local token rule_id relative_path item item_relative matched
+  local -a known_paths=()
+  local -a present_rules=()
+  local unknown_count=0
+
+  case "$normalization_profile" in none|wp-engine-v1) ;; *) fail "unsupported normalization profile" ;; esac
+  for token in "${normalization_rule_tokens[@]}"; do
+    rule_id="${token%%|*}"
+    relative_path="${token#*|}"
+    [[ "$token" == *'|'* && "$rule_id" =~ ^[a-z0-9.-]+$ && "$relative_path" =~ ^mu-plugins/[A-Za-z0-9._-]+$ ]] || \
+      fail "invalid normalization rule"
+    known_paths+=("$relative_path")
+    if [[ -e "$source_root/wp-content/$relative_path" || -L "$source_root/wp-content/$relative_path" ]]; then
+      present_rules+=("$rule_id")
+    fi
+  done
+
+  if [[ "$normalization_profile" != none && -d "$source_root/wp-content/mu-plugins" ]]; then
+    while IFS= read -r item; do
+      item_relative="mu-plugins/$(basename "$item")"
+      matched=no
+      for relative_path in "${known_paths[@]}"; do
+        if [[ "$item_relative" == "$relative_path" ]]; then matched=yes; break; fi
+      done
+      [[ "$matched" == yes ]] || unknown_count=$((unknown_count + 1))
+    done < <(find "$source_root/wp-content/mu-plugins" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+  fi
+
+  printf 'normalization_profile=%s\n' "$normalization_profile"
+  if [[ "${#present_rules[@]}" -gt 0 ]]; then
+    local IFS=,
+    printf 'normalization_rule_ids=%s\n' "${present_rules[*]}"
+  else
+    printf 'normalization_rule_ids=\n'
+  fi
+  printf 'normalization_unknown_count=%s\n' "$unknown_count"
+}
+
 is_core_root_file() {
   case "$1" in index.php|license.txt|readme.html|wp-*.php|xmlrpc.php) return 0 ;; esac
   return 1
@@ -249,6 +290,7 @@ case "$command_name" in
     files_kb="$(du -sk "$source_root/." 2>/dev/null | awk 'NR == 1 {print $1}')"
     [[ "$files_kb" =~ ^[0-9]+$ ]] || fail "source file size could not be measured"
     printf 'files_kb=%s\n' "$files_kb"
+    normalization_scan
     ;;
   export-db) export_database ;;
   get-url) get_source_url ;;
