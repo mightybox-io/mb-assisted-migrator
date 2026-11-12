@@ -3,6 +3,7 @@ set -euo pipefail
 umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/util.sh"
+source "$ROOT_DIR/lib/provider-profile.sh"
 set_log_context relay setup
 usage() {
   cat <<'EOF'
@@ -13,6 +14,7 @@ Intermediary migration (run on a machine that can SSH to both hosts):
   --source-identity=PATH --destination-identity=PATH
   --source-known-hosts=PATH --destination-known-hosts=PATH
   --source-db-method=auto|wp-cli|native
+  --normalization-profile=none|wp-engine-v1
   --state-dir=PATH           Private local cache, reused on subsequent catch-ups
   --recover-stale-lock       Recover only a proven dead same-host relay owner
 Restore options, including --db-import, --new-url, --safety and --yes, are
@@ -27,6 +29,7 @@ destination=""; source_root=""; target_root=""; source_port=22; destination_port
 source_identity=""; destination_identity=""; source_known_hosts=""; destination_known_hosts=""; method=auto
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/mb-migrator/relay"
 recover_stale_lock=no
+normalization_profile=none
 restore_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --source-known-hosts=*) source_known_hosts="${1#*=}" ;;
     --destination-known-hosts=*) destination_known_hosts="${1#*=}" ;;
     --source-db-method=*) method="${1#*=}" ;;
+    --normalization-profile=*) normalization_profile="${1#*=}" ;;
     --state-dir=*) state_dir="${1#*=}" ;;
     --recover-stale-lock) recover_stale_lock=yes ;;
     --rollback-dir=*) die "Relay owns its private rollback location" ;;
@@ -60,10 +64,12 @@ for port in "$source_port" "$destination_port"; do
   [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 && "$port" -le 65535 ]] || die "Invalid SSH port"
 done
 case "$method" in auto|wp-cli|native) ;; *) die "Invalid source database method" ;; esac
+normalization_profile_validate "$normalization_profile" || die "Invalid normalization profile"
 for path in "$source_identity" "$destination_identity" "$source_known_hosts" "$destination_known_hosts"; do
   [[ -z "$path" || ( -f "$path" && ! -L "$path" ) ]] || die "A required SSH identity or known-hosts file is unavailable"
 done
 need_cmd ssh; need_cmd rsync; need_cmd tar
+value_for() { printf '%s\n' "$1" | awk -F= -v key="$2" '$1 == key {sub(/^[^=]*=/, ""); print; exit}'; }
 source_ssh=(-p "$source_port" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8)
 dest_ssh=(-p "$destination_port" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8)
 [[ -z "$source_identity" ]] || source_ssh+=(-i "$source_identity" -o IdentitiesOnly=yes -o IdentityAgent=none)
@@ -131,7 +137,26 @@ relay_phase() {
 }
 log "Private relay cache: $work"
 relay_phase preflight
-ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight "$source_root" "$method" < "$ROOT_DIR/lib/remote-source.sh"
+mapfile -t normalization_args < <(normalization_profile_remote_args "$normalization_profile")
+source_preflight_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight "$source_root" "$method" "${normalization_args[@]}" < "$ROOT_DIR/lib/remote-source.sh")"
+printf '%s\n' "$source_preflight_output"
+normalization_rule_ids="$(value_for "$source_preflight_output" normalization_rule_ids)"
+normalization_unknown_count="$(value_for "$source_preflight_output" normalization_unknown_count)"
+[[ "$normalization_unknown_count" =~ ^[0-9]+$ ]] || die "Invalid normalization preview"
+normalization_report="$work/package/mb-migrator-normalization-v1"
+{
+  printf 'schema_version=1\nprofile_id=%s\nunknown_components_count=%s\n' "$normalization_profile" "$normalization_unknown_count"
+  IFS=',' read -r -a present_rule_ids <<< "$normalization_rule_ids"
+  for rule_id in "${present_rule_ids[@]}"; do
+    [[ -n "$rule_id" ]] || continue
+    normalization_profile_has_rule "$normalization_profile" "$rule_id" || die "Source returned an unknown normalization rule"
+    printf 'rule=%s|excluded\n' "$rule_id"
+  done
+} > "$normalization_report"
+chmod 600 "$normalization_report"
+if [[ "$normalization_unknown_count" -gt 0 ]]; then
+  warn "$normalization_unknown_count unclassified source MU-plugin component(s) will remain excluded by the migration policy"
+fi
 remote="$(ssh "${dest_ssh[@]}" "$destination" "umask 077; mkdir -p \"\$HOME/.local/state/mb-migrator/relay/$id\" && cd \"\$HOME/.local/state/mb-migrator/relay/$id\" && pwd -P")"
 [[ "$remote" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "Destination returned an unsupported staging path"
 ssh "${dest_ssh[@]}" "$destination" "command -v rsync >/dev/null && test -d '$target_root/wp-content' && mkdir -p '$remote/package' '$remote/runner'"
@@ -141,7 +166,13 @@ rollback_dir="$remote/rollback-$rollback_token"
 printf -v source_transport 'ssh'; for arg in "${source_ssh[@]}"; do printf -v source_transport '%s %q' "$source_transport" "$arg"; done
 printf -v dest_transport 'ssh'; for arg in "${dest_ssh[@]}"; do printf -v dest_transport '%s %q' "$dest_transport" "$arg"; done
 relay_phase files
+profile_excludes=()
+while IFS= read -r exclude_path; do
+  [[ -n "$exclude_path" ]] || continue
+  profile_excludes+=("--exclude=$exclude_path")
+done < <(normalization_profile_rsync_excludes "$normalization_profile")
 rsync -az --checksum --safe-links --partial --no-perms --no-owner --no-group -e "$source_transport" \
+  "${profile_excludes[@]}" \
   --include='/plugins/***' --include='/themes/***' --include='/uploads/***' --include='/mu-plugins/***' --exclude='*' \
   "$source_host:$source_root/wp-content/" "$work/package/htdocs/wp-content/"
 ssh "${source_ssh[@]}" "$source_host" bash -s -- archive-root "$source_root" "$method" < "$ROOT_DIR/lib/remote-source.sh" > "$work/root.tar.gz"
