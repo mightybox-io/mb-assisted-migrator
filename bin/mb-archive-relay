@@ -46,7 +46,6 @@ while [[ $# -gt 0 ]]; do
     --state-dir=*) state_dir="${1#*=}" ;;
     --recover-stale-lock) recover_stale_lock=yes ;;
     --rollback-dir=*|--stage-dir=*) die "Archive relay owns its private destination state" ;;
-    --provider=*|--old-url=*|--new-url=*|--target-root=*|--archive-sha256=*) die "Archive relay owns provider, URL, target and digest arguments" ;;
     --mu-plugins=*|--include-mu-plugins|--root-extras=*|--db-import=*|--import-db|--no-import-db|--skip-db-import)
       die "Archive relay owns provider cleanup and database import policy" ;;
     --cleanup=*|--delete-stage-after-success|--delete-archive-after-success|--delete-sql-after-import)
