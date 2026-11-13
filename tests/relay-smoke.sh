@@ -56,6 +56,7 @@ export HOME="$RELAY_TEST_ROOT/home"
 if [[ "$host" == source@test && -n "${RELAY_SOURCE_FAILURE:-}" ]]; then
   case "$RELAY_SOURCE_FAILURE" in
     auth) printf 'Permission denied (publickey). diagnostic-secret\n' >&2 ;;
+    transport) printf 'kex_exchange_identification: Connection closed by remote host diagnostic-secret\n' >&2 ;;
     root) printf '[source-collector:error] wp-content not found: diagnostic-secret\n' >&2 ;;
     multisite) printf '[source-collector:error] WordPress Multisite is not supported diagnostic-secret\n' >&2 ;;
     database) printf '[source-collector:error] no usable WP-CLI or native database export path was found diagnostic-secret\n' >&2 ;;
@@ -140,12 +141,13 @@ assert_source_failure() {
   fi
 }
 assert_source_failure auth migration.source_ssh_unavailable
+assert_source_failure transport migration.source_ssh_unavailable
 assert_source_failure root migration.source_wordpress_root_invalid
 assert_source_failure multisite migration.source_multisite_unsupported
 assert_source_failure database migration.source_database_export_unavailable
 assert_source_failure tools migration.source_tools_unavailable
 assert_source_failure size migration.source_size_unavailable
-assert_source_failure unknown migration.source_preflight_failed
+assert_source_failure unknown migration.source_remote_command_failed
 if RELAY_TARGET_MODIFIED=1 "$ROOT_DIR/bin/mb-migrator" relay-doctor source@test \
   --destination=dest@test --source-root="$T/source" --target-root="$T/target" \
   --source-identity="$T/source-key" --destination-identity="$T/destination-key" \

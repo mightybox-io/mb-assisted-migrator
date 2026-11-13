@@ -135,7 +135,7 @@ if ! source_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight
   rm -f "$source_errors"
   trap - EXIT
   case "$source_error" in
-    *"Permission denied"*|*"Could not resolve hostname"*|*"Connection timed out"*|*"Connection refused"*|*"No route to host"*|*"Host key verification failed"*)
+    *"Permission denied"*|*"Could not resolve hostname"*|*"Connection timed out"*|*"Operation timed out"*|*"Connection refused"*|*"No route to host"*|*"Host key verification failed"*|*"REMOTE HOST IDENTIFICATION HAS CHANGED"*|*"Connection closed by"*|*"Connection reset by peer"*|*"kex_exchange_identification"*|*"Too many authentication failures"*)
       emit_result blocked migration.source_ssh_unavailable "MightyBox could not authenticate to the source SSH account. Confirm the installed public key, SSH user, host, port, and account access."
       ;;
     *"wp-content not found"*|*"wp-config.php is not readable"*)
@@ -154,7 +154,7 @@ if ! source_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight
       emit_result blocked migration.source_size_unavailable "MightyBox could not measure the source WordPress files. Confirm that the SSH user can read the complete WordPress root."
       ;;
     *)
-      emit_result blocked migration.source_preflight_failed "Source WordPress preflight failed. Check source access, document root, database export capability, and multisite status."
+      emit_result blocked migration.source_remote_command_failed "The source SSH endpoint could not run MightyBox's non-interactive WordPress probe. Confirm that this SSH account permits non-interactive bash commands, then retry or use Guided Migration."
       ;;
   esac
   exit 1
