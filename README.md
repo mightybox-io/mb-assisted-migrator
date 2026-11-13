@@ -9,7 +9,7 @@ repository and never default to a mutable branch.
 
 Print the exact tool version with `mb-migrator --version`.
 
-Before opening a pull request, run the same syntax, ShellCheck and seven-suite
+Before opening a pull request, run the same syntax, ShellCheck and smoke-suite
 smoke gate used by GitHub Actions:
 
 ```bash
@@ -18,6 +18,41 @@ smoke gate used by GitHub Actions:
 
 The command fails explicitly when a required local runtime is unavailable; a
 missing tool is never reported as a passing or skipped check.
+
+## Inspected provider backup relay
+
+`archive-relay` is the non-interactive destination path for a provider backup
+that an authorized control plane has already uploaded and inspected. The first
+supported contract is a WP Engine backup ZIP. The caller must bind the restore
+to the inspected archive SHA-256, source URL, destination URL, destination root
+and SSH host. The engine rechecks the digest before and after transfer, requires
+a fresh eligible WordPress destination with a conservative capacity budget,
+removes WP Engine-owned components, imports the database, enables the migration
+safety hold and retains a private rollback point.
+
+```bash
+mb-migrator archive-relay backup.zip \
+  --provider=wpengine \
+  --destination=USER@TARGET \
+  --target-root=/srv/htdocs \
+  --archive-sha256=64_LOWERCASE_HEX_CHARACTERS \
+  --old-url=https://source.example \
+  --new-url=https://destination.example \
+  --destination-identity=/private/destination-key \
+  --destination-known-hosts=/private/destination-known-hosts
+```
+
+After restore, `archive-verify` independently reads the retained destination
+state. It verifies the immutable archive, every selected archive file against
+its destination counterpart, WordPress bootstrap, URLs, administrator access,
+serialized URL replacement, the safety hold, rollback readiness and public
+HTTPS. Its JSON receipt deliberately identifies the evidence basis as
+`immutable_provider_archive`; it does not claim a live-source comparison.
+
+Private archive, extracted stage and rollback evidence remain on the destination
+until the control plane records successful verification and cutover. The caller
+must then use the guarded safety/rollback workflow and remove the exact retained
+state through the forthcoming control-plane cleanup operation.
 
 ## Versioned and verified distribution
 
