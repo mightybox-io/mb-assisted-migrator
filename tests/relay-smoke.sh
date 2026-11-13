@@ -53,6 +53,19 @@ case "$host" in source@test|dest@test) ;; *) exit 91 ;; esac
 export RELAY_TEST_INSIDE_SSH=1
 export RELAY_TEST_HOST="$host"
 export HOME="$RELAY_TEST_ROOT/home"
+if [[ "$host" == source@test && -n "${RELAY_SOURCE_FAILURE:-}" ]]; then
+  case "$RELAY_SOURCE_FAILURE" in
+    auth) printf 'Permission denied (publickey). diagnostic-secret\n' >&2 ;;
+    root) printf '[source-collector:error] wp-content not found: diagnostic-secret\n' >&2 ;;
+    multisite) printf '[source-collector:error] WordPress Multisite is not supported diagnostic-secret\n' >&2 ;;
+    database) printf '[source-collector:error] no usable WP-CLI or native database export path was found diagnostic-secret\n' >&2 ;;
+    tools) printf '[source-collector:error] tar is unavailable diagnostic-secret\n' >&2 ;;
+    size) printf '[source-collector:error] source file size could not be measured diagnostic-secret\n' >&2 ;;
+    unknown) printf '[source-collector:error] diagnostic-secret unknown failure\n' >&2 ;;
+    *) exit 93 ;;
+  esac
+  exit 94
+fi
 if [[ "${1:-}" == bash && "${2:-}" == -s ]]; then
   # The source collector is real; use the fixture root supplied by the command.
   exec "$@"
@@ -112,6 +125,27 @@ grep -q '"profile_id":"wp-engine-v1"' <<< "$doctor_output"
 grep -q '"rule_ids":\["wpengine.mu.wpengine-common-v1"\]' <<< "$doctor_output"
 grep -q '"unknown_components_count":1' <<< "$doctor_output"
 test ! -e "$T/state"
+assert_source_failure() {
+  local failure="$1" expected_code="$2" output
+  if output="$(RELAY_SOURCE_FAILURE="$failure" "$ROOT_DIR/bin/mb-migrator" relay-doctor source@test \
+    --destination=dest@test --source-root="$T/source" --target-root="$T/target" \
+    --source-identity="$T/source-key" --destination-identity="$T/destination-key" \
+    --source-known-hosts="$T/source-known-hosts" --destination-known-hosts="$T/destination-known-hosts" \
+    --normalization-profile=wp-engine-v1 --json)"; then
+    echo "Source failure $failure unexpectedly passed preflight" >&2; exit 1
+  fi
+  grep -q "\"reason_code\":\"$expected_code\"" <<< "$output"
+  if grep -q 'diagnostic-secret' <<< "$output"; then
+    echo "Source failure $failure leaked raw diagnostic output" >&2; exit 1
+  fi
+}
+assert_source_failure auth migration.source_ssh_unavailable
+assert_source_failure root migration.source_wordpress_root_invalid
+assert_source_failure multisite migration.source_multisite_unsupported
+assert_source_failure database migration.source_database_export_unavailable
+assert_source_failure tools migration.source_tools_unavailable
+assert_source_failure size migration.source_size_unavailable
+assert_source_failure unknown migration.source_preflight_failed
 if RELAY_TARGET_MODIFIED=1 "$ROOT_DIR/bin/mb-migrator" relay-doctor source@test \
   --destination=dest@test --source-root="$T/source" --target-root="$T/target" \
   --source-identity="$T/source-key" --destination-identity="$T/destination-key" \
