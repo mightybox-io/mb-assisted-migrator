@@ -124,10 +124,43 @@ dest_ssh=(-p "$destination_port" -o BatchMode=yes -o ConnectTimeout=20 -o Server
 
 source_output=""
 mapfile -t normalization_args < <(normalization_profile_remote_args "$normalization_profile")
-if ! source_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight "$source_root" "$method" "${normalization_args[@]}" < "$ROOT_DIR/lib/remote-source.sh" 2>/dev/null)"; then
-  emit_result blocked migration.source_preflight_failed "Source WordPress preflight failed. Check source access, document root, database export capability, and multisite status."
+source_errors="$(mktemp "${TMPDIR:-/tmp}/mb-relay-source-errors.XXXXXX")" || {
+  emit_result blocked migration.preflight_failed "MightyBox could not prepare a private source diagnostic file."
+  exit 1
+}
+chmod 600 "$source_errors"
+trap 'rm -f "$source_errors"' EXIT
+if ! source_output="$(ssh "${source_ssh[@]}" "$source_host" bash -s -- preflight "$source_root" "$method" "${normalization_args[@]}" < "$ROOT_DIR/lib/remote-source.sh" 2>"$source_errors")"; then
+  source_error="$(<"$source_errors")"
+  rm -f "$source_errors"
+  trap - EXIT
+  case "$source_error" in
+    *"Permission denied"*|*"Could not resolve hostname"*|*"Connection timed out"*|*"Connection refused"*|*"No route to host"*|*"Host key verification failed"*)
+      emit_result blocked migration.source_ssh_unavailable "MightyBox could not authenticate to the source SSH account. Confirm the installed public key, SSH user, host, port, and account access."
+      ;;
+    *"wp-content not found"*|*"wp-config.php is not readable"*)
+      emit_result blocked migration.source_wordpress_root_invalid "The selected source root is not a readable WordPress installation. Confirm the provider's WordPress document root."
+      ;;
+    *"WordPress Multisite is not supported"*)
+      emit_result blocked migration.source_multisite_unsupported "This Assisted Migration version does not support WordPress Multisite. Use Guided Migration instead."
+      ;;
+    *"no usable WP-CLI or native database export path was found"*|*"WP-CLI cannot read the source database configuration"*|*"native export requires PHP, a dump client, and resolvable wp-config.php credentials"*)
+      emit_result blocked migration.source_database_export_unavailable "The source cannot provide a supported database export. Confirm WP-CLI database access or a native MySQL dump client and readable WordPress database configuration."
+      ;;
+    *"tar is unavailable"*)
+      emit_result blocked migration.source_tools_unavailable "The source SSH environment does not provide the archive tools required for Assisted Migration. Use Guided Migration or ask the source host to enable tar."
+      ;;
+    *"source file size could not be measured"*)
+      emit_result blocked migration.source_size_unavailable "MightyBox could not measure the source WordPress files. Confirm that the SSH user can read the complete WordPress root."
+      ;;
+    *)
+      emit_result blocked migration.source_preflight_failed "Source WordPress preflight failed. Check source access, document root, database export capability, and multisite status."
+      ;;
+  esac
   exit 1
 fi
+rm -f "$source_errors"
+trap - EXIT
 target_output=""
 if ! target_output="$(ssh "${dest_ssh[@]}" "$destination" bash -s -- "$target_root" < "$ROOT_DIR/lib/remote-target.sh" 2>/dev/null)"; then
   emit_result blocked migration.destination_preflight_failed "Destination preflight failed. Check MightyBox SSH access, target root, tools, permissions, and capacity."
