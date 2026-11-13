@@ -11,7 +11,7 @@ usage() {
 Verify a provider-backup restore using retained archive and destination evidence:
   mb-migrator archive-verify --destination=USER@TARGET \
     --target-root=/srv/htdocs --archive-sha256=HEX --run-id=UUID \
-    --expected-url=https://destination.example [options]
+    --expected-url=https://destination.example --expected-safety=enabled|disabled [options]
   --destination-port=22 --destination-identity=PATH
   --destination-known-hosts=PATH --json
 
@@ -20,7 +20,7 @@ archive, migrated file bytes, WordPress state, URL rewrite, safety and rollback.
 EOF
 }
 
-destination=""; target_root=""; archive_sha=""; run_id=""; expected_url=""
+destination=""; target_root=""; archive_sha=""; run_id=""; expected_url=""; expected_safety=""
 destination_port=22; destination_identity=""; destination_known_hosts=""; json=no
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --archive-sha256=*) archive_sha="${1#*=}" ;;
     --run-id=*) run_id="${1#*=}" ;;
     --expected-url=*) expected_url="${1#*=}" ;;
+    --expected-safety=*) expected_safety="${1#*=}" ;;
     --destination-port=*) destination_port="${1#*=}" ;;
     --destination-identity=*) destination_identity="${1#*=}" ;;
     --destination-known-hosts=*) destination_known_hosts="${1#*=}" ;;
@@ -43,6 +44,7 @@ done
 [[ "$archive_sha" =~ ^[a-f0-9]{64}$ ]] || die "Archive SHA-256 is required"
 [[ "$run_id" =~ ^[a-fA-F0-9-]{36}$ ]] || die "Migration run UUID is required"
 [[ "$expected_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/.*)?$ ]] || die "Expected URL is invalid"
+case "$expected_safety" in enabled|disabled) ;; *) die "Expected safety state is required" ;; esac
 [[ "$destination_port" =~ ^[0-9]+$ && "$destination_port" -gt 0 && "$destination_port" -le 65535 ]] || die "Destination port is invalid"
 for path in "$destination_identity" "$destination_known_hosts"; do [[ -z "$path" || ( -f "$path" && ! -L "$path" ) ]] || die "Destination SSH material is unavailable"; done
 dest_ssh=(-p "$destination_port" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8)
@@ -55,7 +57,7 @@ remote="$(ssh "${dest_ssh[@]}" "$destination" "cd \"\$HOME/.local/state/mb-migra
 rollback_dir="$(ssh "${dest_ssh[@]}" "$destination" "cat '$remote/current-rollback' 2>/dev/null")" || rollback_dir=""
 case "$rollback_dir" in "$remote"/rollback-[A-Za-z0-9._-]*) ;; *) rollback_dir="" ;; esac
 safety_sha256="$("${hash[@]}" "$ROOT_DIR/lib/migration-safety.php" | awk '{print $1}')"
-output="$(ssh "${dest_ssh[@]}" "$destination" bash -s -- "$remote" "$target_root" "$archive_sha" "$expected_url" "$rollback_dir" "$safety_sha256" < "$ROOT_DIR/lib/remote-archive-verification.sh" 2>/dev/null)" || die "Destination archive verification failed"
+output="$(ssh "${dest_ssh[@]}" "$destination" bash -s -- "$remote" "$target_root" "$archive_sha" "$expected_url" "$expected_safety" "$rollback_dir" "$safety_sha256" < "$ROOT_DIR/lib/remote-archive-verification.sh" 2>/dev/null)" || die "Destination archive verification failed"
 value_for() { printf '%s\n' "$output" | awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; exit}'; }
 archive_check="$(value_for archive)"; files_check="$(value_for files)"; wordpress_check="$(value_for wordpress)"
 urls_check="$(value_for urls)"; administrator_check="$(value_for administrator)"; serialized_urls_check="$(value_for serialized_urls)"
@@ -72,7 +74,7 @@ bool_json() { [[ "$1" == yes ]] && printf true || printf false; }
 if [[ "$json" == yes ]]; then
   printf '{"schema_version":1,"tool_version":"%s","run_id":"%s","verification_basis":"immutable_provider_archive","status":"%s","reason_code":%s,"verified_at":"%s","checks":{' "$(<"$ROOT_DIR/VERSION")" "$run_id" "$status" "$([[ -z "$reason" ]] && printf null || printf '"%s"' "$reason")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '"archive":%s,"files":%s,"wordpress":%s,"urls":%s,"administrator":%s,"serialized_urls":%s,"safety":%s,"rollback":%s,"public_https":%s},' "$(bool_json "$archive_check")" "$(bool_json "$files_check")" "$(bool_json "$wordpress_check")" "$(bool_json "$urls_check")" "$(bool_json "$administrator_check")" "$(bool_json "$serialized_urls_check")" "$(bool_json "$safety_check")" "$(bool_json "$rollback_check")" "$(bool_json "$public_https_check")"
-  printf '"evidence":{"archive_sha256":"%s","migrated_files_count":%s,"content_count":%s,"media_count":%s,"http_status":%s}}\n' "$archive_sha" "${migrated_files_count:-0}" "${content_count:-0}" "${media_count:-0}" "$http_status"
+  printf '"evidence":{"archive_sha256":"%s","migrated_files_count":%s,"content_count":%s,"media_count":%s,"administrator_count":%s,"http_status":%s,"safety_state":"%s","rollback_state":"ready"}}\n' "$archive_sha" "${migrated_files_count:-0}" "${content_count:-0}" "${media_count:-0}" "${administrator_count:-0}" "$http_status" "$expected_safety"
 else
   [[ "$status" == verified ]] && log "Archive destination verification passed" || warn "Archive destination verification failed"
 fi

@@ -93,6 +93,7 @@ verify_output="$("$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@t
   --target-root="$T/target" --archive-sha256="$sha" \
   --run-id=019a4dc8-d9ff-73f2-8e98-2e6905994c10 \
   --expected-url=https://destination.example.test \
+  --expected-safety=enabled \
   --destination-identity="$T/destination-key" --destination-known-hosts="$T/destination-known-hosts" --json)"
 php -r 'json_decode($argv[1], true, 512, JSON_THROW_ON_ERROR);' "$verify_output"
 grep -q '"verification_basis":"immutable_provider_archive"' <<< "$verify_output"
@@ -100,11 +101,20 @@ grep -q '"status":"verified"' <<< "$verify_output"
 grep -q '"archive":true' <<< "$verify_output"
 grep -q '"files":true' <<< "$verify_output"
 grep -q '"rollback":true' <<< "$verify_output"
+"$ROOT_DIR/bin/mb-migrator" safety disable --target-root="$T/target" --live-url=https://destination.example.test --yes > "$T/release.log"
+released_output="$("$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@test \
+  --target-root="$T/target" --archive-sha256="$sha" \
+  --run-id=019a4dc8-d9ff-73f2-8e98-2e6905994c10 \
+  --expected-url=https://destination.example.test --expected-safety=disabled \
+  --destination-identity="$T/destination-key" --destination-known-hosts="$T/destination-known-hosts" --json)"
+grep -q '"status":"verified"' <<< "$released_output"
+grep -q '"safety_state":"disabled"' <<< "$released_output"
 printf corrupt > "$T/target/wp-content/uploads/evidence.txt"
 if "$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@test \
   --target-root="$T/target" --archive-sha256="$sha" \
   --run-id=019a4dc8-d9ff-73f2-8e98-2e6905994c10 \
   --expected-url=https://destination.example.test \
+  --expected-safety=enabled \
   --destination-identity="$T/destination-key" --destination-known-hosts="$T/destination-known-hosts" --json > "$T/corrupt.json"; then
   echo 'Corrupt destination file unexpectedly verified' >&2; exit 1
 fi
