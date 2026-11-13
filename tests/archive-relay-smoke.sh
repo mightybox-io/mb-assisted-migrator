@@ -37,6 +37,7 @@ case "$*" in
   *'search-replace '*--format=count*) echo 0 ;;
   *'search-replace '*) exit 0 ;;
   *'cache flush'*) exit 0 ;;
+  *eval*) exit 0 ;;
   *) exit 80 ;;
 esac
 WP

@@ -62,7 +62,7 @@ value_for() { printf '%s\n' "$output" | awk -F= -v key="$1" '$1 == key {sub(/^[^
 archive_check="$(value_for archive)"; files_check="$(value_for files)"; wordpress_check="$(value_for wordpress)"
 urls_check="$(value_for urls)"; administrator_check="$(value_for administrator)"; serialized_urls_check="$(value_for serialized_urls)"
 safety_check="$(value_for safety)"; rollback_check="$(value_for rollback)"; public_https_check=no
-content_count="$(value_for content_count)"; media_count="$(value_for media_count)"; migrated_files_count="$(value_for migrated_files_count)"
+content_count="$(value_for content_count)"; media_count="$(value_for media_count)"; migrated_files_count="$(value_for migrated_files_count)"; administrator_count="$(value_for administrator_count)"
 http_status=0
 if command -v curl >/dev/null 2>&1; then http_status="$(curl --proto '=https' --tlsv1.2 -L -sS -o /dev/null -w '%{http_code}' --max-time 30 "$expected_url" 2>/dev/null || true)"; [[ "$http_status" =~ ^[23][0-9][0-9]$ ]] && public_https_check=yes; fi
 [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=0
