@@ -40,6 +40,7 @@ printf 'Running ShellCheck...\n'
 shellcheck -x -S warning "${shell_files[@]}"
 
 smoke_suites=(
+  tests/archive-relay-smoke.sh
   tests/smoke.sh
   tests/live-smoke.sh
   tests/native-db-smoke.sh

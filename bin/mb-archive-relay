@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/lib/util.sh"
+set_log_context archive-relay setup
+
+usage() {
+  cat <<'EOF'
+Restore an already-inspected provider backup through a destination SSH account:
+  mb-migrator archive-relay BACKUP.zip --provider=wpengine \
+    --destination=USER@TARGET --target-root=/srv/htdocs \
+    --archive-sha256=HEX --old-url=https://source.example \
+    --new-url=https://destination.example [options]
+  --destination-port=22
+  --destination-identity=PATH
+  --destination-known-hosts=PATH
+  --state-dir=PATH           Private local retry state
+  --recover-stale-lock       Recover only a proven pre-restore dead owner
+
+The exact archive digest is checked locally and after transfer. The destination
+owns its private stage and rollback point. Cleanup is deferred until verified
+cutover so a failed or interrupted restore remains recoverable.
+EOF
+}
+
+[[ "${1:-}" != --help && $# -gt 0 ]] || { usage; exit 0; }
+archive="$1"; shift
+provider=""; destination=""; target_root=""; expected_sha=""; old_url=""; new_url=""
+destination_port=22; destination_identity=""; destination_known_hosts=""
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/mb-migrator/archive-relay"
+recover_stale_lock=no
+restore_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --provider=*) provider="${1#*=}" ;;
+    --destination=*) destination="${1#*=}" ;;
+    --target-root=*) target_root="${1#*=}" ;;
+    --archive-sha256=*) expected_sha="${1#*=}" ;;
+    --old-url=*) old_url="${1#*=}" ;;
+    --new-url=*) new_url="${1#*=}" ;;
+    --destination-port=*) destination_port="${1#*=}" ;;
+    --destination-identity=*) destination_identity="${1#*=}" ;;
+    --destination-known-hosts=*) destination_known_hosts="${1#*=}" ;;
+    --state-dir=*) state_dir="${1#*=}" ;;
+    --recover-stale-lock) recover_stale_lock=yes ;;
+    --rollback-dir=*|--stage-dir=*) die "Archive relay owns its private destination state" ;;
+    --mu-plugins=*|--include-mu-plugins|--root-extras=*|--db-import=*|--import-db|--no-import-db|--skip-db-import)
+      die "Archive relay owns provider cleanup and database import policy" ;;
+    --cleanup=*|--delete-stage-after-success|--delete-archive-after-success|--delete-sql-after-import)
+      die "Archive relay retains evidence until verified cutover" ;;
+    --dry-run) die "Use the application archive inspection before starting restore" ;;
+    *) restore_args+=("$1") ;;
+  esac
+  shift
+done
+
+[[ -f "$archive" && ! -L "$archive" ]] || die "Backup archive is unavailable or unsafe"
+archive="$(cd "$(dirname "$archive")" && pwd -P)/$(basename "$archive")"
+[[ "$provider" == wpengine ]] || die "Archive relay currently supports provider wpengine"
+[[ "$destination" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$ ]] || die "Expected USER@HOST destination"
+[[ "$target_root" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "Target root must be an absolute path without shell characters"
+[[ "$destination_port" =~ ^[0-9]+$ && "$destination_port" -gt 0 && "$destination_port" -le 65535 ]] || die "Invalid destination SSH port"
+[[ "$expected_sha" =~ ^[a-f0-9]{64}$ ]] || die "A lowercase SHA-256 archive digest is required"
+[[ "$old_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/.*)?$ ]] || die "Source URL is invalid"
+[[ "$new_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/.*)?$ ]] || die "Destination URL is invalid"
+for path in "$destination_identity" "$destination_known_hosts"; do
+  [[ -z "$path" || ( -f "$path" && ! -L "$path" ) ]] || die "A destination SSH identity or known-hosts file is unavailable"
+done
+need_cmd ssh; need_cmd rsync; need_cmd tar; need_cmd php
+if command -v sha256sum >/dev/null 2>&1; then hash=(sha256sum); else hash=(shasum -a 256); fi
+actual_sha="$("${hash[@]}" "$archive" | awk '{print $1}')"
+[[ "$actual_sha" == "$expected_sha" ]] || die "Backup archive digest changed after inspection"
+expanded_bytes="$(php -r '
+  $zip = new ZipArchive();
+  if ($zip->open($argv[1]) !== true) exit(2);
+  $total = 0;
+  for ($i = 0; $i < $zip->numFiles; $i++) {
+      $entry = $zip->statIndex($i, ZipArchive::FL_UNCHANGED);
+      if (!is_array($entry) || !isset($entry["size"]) || !is_int($entry["size"]) || $entry["size"] < 0) exit(3);
+      $total += $entry["size"];
+  }
+  echo $total;
+' "$archive")" || die "Backup archive expanded size is unavailable"
+[[ "$expanded_bytes" =~ ^[0-9]+$ && "$expanded_bytes" -gt 0 ]] || die "Backup archive expanded size is invalid"
+compressed_bytes="$(wc -c < "$archive" | tr -d ' ')"
+[[ "$compressed_bytes" =~ ^[0-9]+$ && "$compressed_bytes" -le "${MB_MIGRATOR_MAX_ARCHIVE_COMPRESSED_BYTES:-1073741824}" ]] || die "Backup archive exceeds the compressed size limit"
+[[ "$expanded_bytes" -le "${MB_MIGRATOR_MAX_ARCHIVE_EXPANDED_BYTES:-26843545600}" ]] || die "Backup archive exceeds the expanded size limit"
+
+dest_ssh=(-p "$destination_port" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8)
+[[ -z "$destination_identity" ]] || dest_ssh+=(-i "$destination_identity" -o IdentitiesOnly=yes -o IdentityAgent=none)
+[[ -z "$destination_known_hosts" ]] || dest_ssh+=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$destination_known_hosts")
+id="$(printf '%s' "$expected_sha|$destination|$destination_port|$target_root" | "${hash[@]}" | cut -c1-20)"
+mkdir -p "$state_dir"; state_dir="$(cd "$state_dir" && pwd -P)"
+work="$state_dir/$id"; mkdir -p "$work"; chmod 700 "$state_dir" "$work"
+lock_dir="$work/lock"; lock_owner="$lock_dir/owner"; lock_host="$(uname -n)"; lock_retain=no
+[[ "$lock_host" =~ ^[A-Za-z0-9._-]+$ ]] || die "Local hostname is unsafe for lock ownership"
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  [[ "$recover_stale_lock" == yes ]] || die "Archive relay is locked; use --recover-stale-lock only after proving the owner stopped"
+  [[ -f "$lock_owner" && ! -L "$lock_owner" ]] || die "Archive relay lock ownership is missing or unsafe"
+  owner_host="$(awk -F= '$1 == "host" {print $2; exit}' "$lock_owner")"
+  owner_pid="$(awk -F= '$1 == "pid" {print $2; exit}' "$lock_owner")"
+  owner_phase="$(awk -F= '$1 == "phase" {print $2; exit}' "$lock_owner")"
+  [[ "$owner_host" == "$lock_host" && "$owner_pid" =~ ^[0-9]+$ && "$owner_pid" -gt 1 ]] || die "Archive relay lock is foreign or malformed"
+  case "$owner_phase" in setup|preflight|transfer) ;; restore|complete) die "Restore may have started; reconcile destination and rollback manually" ;; *) die "Archive relay lock phase is unknown" ;; esac
+  kill -0 "$owner_pid" 2>/dev/null && die "Archive relay is owned by active PID $owner_pid"
+  rm -f "$lock_owner"; rmdir "$lock_dir" 2>/dev/null || die "Archive relay lock changed during recovery"
+  mkdir "$lock_dir" || die "Another archive relay acquired the lock"
+fi
+chmod 700 "$lock_dir"
+write_lock() { local temporary="$lock_owner.tmp.$$"; printf 'host=%s\npid=%s\nphase=%s\n' "$lock_host" "$$" "$1" > "$temporary"; chmod 600 "$temporary"; mv "$temporary" "$lock_owner"; }
+write_lock setup
+cleanup_lock() {
+  [[ "$lock_retain" != yes ]] || { warn "Lock retained because restore state is ambiguous: $lock_dir"; return; }
+  [[ -f "$lock_owner" && ! -L "$lock_owner" ]] || return
+  grep -Fxq "host=$lock_host" "$lock_owner" && grep -Fxq "pid=$$" "$lock_owner" || return
+  rm -f "$lock_owner"; rmdir "$lock_dir" 2>/dev/null || true
+}
+trap cleanup_lock EXIT
+phase() { set_log_phase "$1"; write_lock "$1"; }
+
+phase preflight
+target_output="$(ssh "${dest_ssh[@]}" "$destination" bash -s -- "$target_root" < "$ROOT_DIR/lib/remote-target.sh" 2>/dev/null)" || die "Destination preflight failed"
+value_for() { printf '%s\n' "$target_output" | awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; exit}'; }
+[[ "$(value_for wp_state)" == installed ]] || die "Destination WordPress is unavailable"
+[[ "$(value_for content_state)" == clean ]] || die "Destination is not a fresh eligible WordPress site"
+available_kb="$(value_for available_kb)"; [[ "$available_kb" =~ ^[0-9]+$ ]] || die "Destination free space is unavailable"
+required_kb=$(( (expanded_bytes * 2 + 1023) / 1024 + 524288 ))
+[[ "$available_kb" -ge "$required_kb" ]] || die "Destination does not have the conservative transfer and rollback capacity"
+remote="$(ssh "${dest_ssh[@]}" "$destination" "umask 077; command -v rsync >/dev/null && command -v php >/dev/null && test -d '$target_root/wp-content' && mkdir -p \"\$HOME/.local/state/mb-migrator/archive-relay/$id/archive\" \"\$HOME/.local/state/mb-migrator/archive-relay/$id/runner\" && cd \"\$HOME/.local/state/mb-migrator/archive-relay/$id\" && pwd -P")"
+[[ "$remote" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "Destination returned an unsupported staging path"
+rollback_token="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}"
+rollback_dir="$remote/rollback-$rollback_token"
+dest_transport=ssh; for arg in "${dest_ssh[@]}"; do printf -v dest_transport '%s %q' "$dest_transport" "$arg"; done
+phase transfer
+rsync -az --checksum --partial --no-owner --no-group -e "$dest_transport" "$archive" "$destination:$remote/archive/backup.zip"
+remote_sha="$(ssh "${dest_ssh[@]}" "$destination" "if command -v sha256sum >/dev/null 2>&1; then sha256sum '$remote/archive/backup.zip'; else shasum -a 256 '$remote/archive/backup.zip'; fi" | awk '{print $1}')"
+[[ "$remote_sha" == "$expected_sha" ]] || die "Destination archive checksum verification failed"
+tar -czf "$work/runner.tar.gz" -C "$ROOT_DIR" bin lib providers VERSION
+quoted_runner="$(printf '%q' "$remote/runner")"
+ssh "${dest_ssh[@]}" "$destination" "tar -xzf - -C $quoted_runner" < "$work/runner.tar.gz"
+printf 'schema_version=1\nprovider=%s\narchive_sha256=%s\nold_url=%s\nnew_url=%s\n' "$provider" "$expected_sha" "$old_url" "$new_url" > "$work/archive-manifest"
+chmod 600 "$work/archive-manifest"
+rsync -az --checksum -e "$dest_transport" "$work/archive-manifest" "$destination:$remote/archive-manifest"
+
+printf -v restore_command 'bash %q restore %q --provider=%q --target-root=%q --stage-dir=%q --rollback-dir=%q --old-url=%q --new-url=%q --search-replace --db-import=yes --mu-plugins=skip --root-extras=skip --cleanup=no --safety=enable --yes' \
+  "$remote/runner/bin/mb-migrator" "$remote/archive/backup.zip" "$provider" "$target_root" "$remote/stage" "$rollback_dir" "$old_url" "$new_url"
+for arg in "${restore_args[@]}"; do printf -v restore_command '%s %q' "$restore_command" "$arg"; done
+lock_retain=yes; phase restore
+printf -v login_command 'bash -lc %q' "$restore_command"
+ssh "${dest_ssh[@]}" "$destination" "$login_command"
+printf -v marker_command 'umask 077; printf "%%s\n" %q > %q' "$rollback_dir" "$remote/current-rollback"
+ssh "${dest_ssh[@]}" "$destination" "$marker_command" || die "Restore completed, but rollback readiness could not be recorded"
+phase complete; lock_retain=no
+log "Archive restore completed; retained destination evidence is ready for independent verification."
