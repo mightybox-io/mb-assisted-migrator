@@ -49,6 +49,19 @@ serialized URL replacement, the safety hold, rollback readiness and public
 HTTPS. Its JSON receipt deliberately identifies the evidence basis as
 `immutable_provider_archive`; it does not claim a live-source comparison.
 
+Archive relay records a private file policy before copying or importing. It binds
+selected source hashes and canonical content roots to the archive digest, records
+existing destination symlinks deliberately preserved by the merge policy, and
+snapshots their link identities and target trees. Verification checks copied files
+against the archive and preserved trees against that pre-copy record. Excluded
+platform cache plugins follow the same explicit selection policy as restore.
+New links, retargeted links, changed provider files, changed staged inventories,
+missing policies and policy-binding mismatches fail verification. Preserved target
+trees containing further symlinks or special files are unsupported and fail closed.
+Verification never creates a baseline from current destination state. Old retained
+runs without a policy need operator-reviewed reconciliation; installing a new engine
+alone does not make an old failed run accepted, and must not trigger another import.
+
 Private archive, extracted stage and rollback evidence remain on the destination
 until the control plane records successful verification and cutover. The caller
 must then use the guarded safety/rollback workflow and remove the exact retained

@@ -35,11 +35,13 @@ bash -n "${shell_files[@]}"
 printf 'Checking PHP helper syntax...\n'
 php -l lib/migration-safety.php
 php -l lib/wpengine-zip.php
+php -l lib/archive-file-policy.php
 
 printf 'Running ShellCheck...\n'
 shellcheck -x -S warning "${shell_files[@]}"
 
 smoke_suites=(
+  tests/archive-file-policy-smoke.sh
   tests/archive-relay-smoke.sh
   tests/smoke.sh
   tests/live-smoke.sh

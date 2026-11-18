@@ -12,7 +12,7 @@ command -v wp >/dev/null 2>&1 || fail "WP-CLI unavailable"
 command -v find >/dev/null 2>&1 || fail "find unavailable"
 if command -v sha256sum >/dev/null 2>&1; then hash_file() { sha256sum "$1" | awk '{print $1}'; }; else hash_file() { shasum -a 256 "$1" | awk '{print $1}'; }; fi
 
-archive=no; files=yes; wordpress=no; urls=no; administrator=no; serialized_urls=no; safety=no; rollback=no
+archive=no; files=no; wordpress=no; urls=no; administrator=no; serialized_urls=no; safety=no; rollback=no
 [[ -f "$state_root/archive/backup.zip" && ! -L "$state_root/archive/backup.zip" && "$(hash_file "$state_root/archive/backup.zip")" == "$expected_sha" ]] && archive=yes
 [[ -f "$state_root/archive-manifest" && ! -L "$state_root/archive-manifest" ]] || fail "archive manifest unavailable"
 old_url="$(awk -F= '$1 == "old_url" {sub(/^[^=]*=/, ""); print; exit}' "$state_root/archive-manifest")"
@@ -21,20 +21,14 @@ manifest_sha="$(awk -F= '$1 == "archive_sha256" {print $2; exit}' "$state_root/a
 stage_content="$state_root/stage/htdocs/wp-content"
 [[ -d "$stage_content" && ! -L "$stage_content" ]] || fail "retained extracted content unavailable"
 migrated_files_count=0; media_count=0
-files_list="$state_root/.archive-verification-files.$$"
-trap 'rm -f "$files_list"' EXIT
-find "$stage_content" -type f -print0 > "$files_list"
-while IFS= read -r -d '' source_file; do
-  relative="${source_file#"$stage_content"/}"
-  case "$relative" in mysql.sql|object-cache.php|advanced-cache.php|mu-plugins/wpengine-common/*) continue ;; esac
-  target_file="$target_root/wp-content/$relative"
-  if [[ ! -f "$target_file" || -L "$target_file" || "$(hash_file "$source_file")" != "$(hash_file "$target_file")" ]]; then files=no; fi
-  migrated_files_count=$((migrated_files_count + 1))
-  case "$relative" in uploads/*) media_count=$((media_count + 1)) ;; esac
-done < "$files_list"
-rm -f "$files_list"
-trap - EXIT
-[[ "$migrated_files_count" -gt 0 ]] || files=no
+# Policy is captured before copying, never synthesized by verification. Legacy
+# retained runs without this evidence require explicit operator reconciliation.
+if policy_output="$(php "$state_root/runner/lib/archive-file-policy.php" verify \
+    "$state_root/archive-file-policy.json" "$stage_content" "$target_root/wp-content" "$expected_sha" 2>/dev/null)"; then
+  files=yes
+  migrated_files_count="$(printf '%s\n' "$policy_output" | awk -F= '$1 == "migrated_files_count" {print $2}')"
+  media_count="$(printf '%s\n' "$policy_output" | awk -F= '$1 == "media_count" {print $2}')"
+fi
 
 wp_site() (cd "$target_root" && wp --skip-plugins --skip-themes "$@");
 if wp_site core is-installed >/dev/null 2>&1; then wordpress=yes; fi

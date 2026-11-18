@@ -15,6 +15,7 @@ php -r '
     "wp-content/mysql.sql" => "CREATE TABLE `wp_options` (`id` bigint);\n",
     "wp-content/plugins/sample/plugin.php" => "plugin",
     "wp-content/themes/sample/style.css" => "theme",
+    "wp-content/themes/managed/style.css" => "source-theme",
     "wp-content/uploads/evidence.txt" => "archive-evidence",
     "wp-content/mu-plugins/wpengine-common/loader.php" => "excluded",
     "wp-content/object-cache.php" => "excluded"
@@ -83,7 +84,12 @@ run_archive_relay() {
     --destination-identity="$T/destination-key" --destination-known-hosts="$T/destination-known-hosts" \
     --state-dir="$T/state"
 }
+mkdir -p "$T/platform-theme" "$T/target/wp-content/themes"
+printf platform-theme > "$T/platform-theme/style.css"
+ln -s "$T/platform-theme" "$T/target/wp-content/themes/managed"
 run_archive_relay > "$T/restore.log"
+test -L "$T/target/wp-content/themes/managed"
+[[ "$(cat "$T/platform-theme/style.css")" == platform-theme ]]
 [[ "$(cat "$T/target/wp-content/uploads/evidence.txt")" == archive-evidence ]]
 test -f "$T/target/wp-content/plugins/sample/plugin.php"
 test -f "$T/target/wp-content/themes/sample/style.css"
@@ -102,6 +108,26 @@ grep -q '"status":"verified"' <<< "$verify_output"
 grep -q '"archive":true' <<< "$verify_output"
 grep -q '"files":true' <<< "$verify_output"
 grep -q '"rollback":true' <<< "$verify_output"
+# Verification must consume the original pre-copy record, never rebaseline.
+relay_id="$(printf '%s' "$sha|dest@test|22|$T/target" | sha256sum | cut -c1-20)"
+policy="$T/home/.local/state/mb-migrator/archive-relay/$relay_id/archive-file-policy.json"
+assert_policy_failure() {
+  if "$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@test \
+    --target-root="$T/target" --archive-sha256="$sha" \
+    --run-id=019a4dc8-d9ff-73f2-8e98-2e6905994c10 \
+    --expected-url=https://destination.example.test --expected-safety=enabled \
+    --destination-identity="$T/destination-key" --destination-known-hosts="$T/destination-known-hosts" --json > "$T/policy-failure.json"; then
+    echo 'Invalid preservation policy unexpectedly verified' >&2; exit 1
+  fi
+  grep -q '"files":false' "$T/policy-failure.json"
+}
+mv "$policy" "$policy.saved"
+assert_policy_failure
+test ! -e "$policy"
+mv "$policy.saved" "$policy"
+printf changed-platform-theme > "$T/platform-theme/style.css"
+assert_policy_failure
+printf platform-theme > "$T/platform-theme/style.css"
 "$ROOT_DIR/bin/mb-migrator" safety disable --target-root="$T/target" --live-url=https://destination.example.test --yes > "$T/release.log"
 released_output="$("$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@test \
   --target-root="$T/target" --archive-sha256="$sha" \

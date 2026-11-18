@@ -50,6 +50,7 @@ while [[ $# -gt 0 ]]; do
       die "Archive relay owns provider cleanup and database import policy" ;;
     --cleanup=*|--delete-stage-after-success|--delete-archive-after-success|--delete-sql-after-import)
       die "Archive relay retains evidence until verified cutover" ;;
+    --replace-managed-symlinks) die "Archive relay preserves destination-managed links" ;;
     --dry-run) die "Use the application archive inspection before starting restore" ;;
     *) restore_args+=("$1") ;;
   esac
@@ -146,6 +147,8 @@ rsync -az --checksum -e "$dest_transport" "$work/archive-manifest" "$destination
 
 printf -v restore_command 'bash %q restore %q --provider=%q --target-root=%q --stage-dir=%q --rollback-dir=%q --old-url=%q --new-url=%q --search-replace --db-import=yes --mu-plugins=skip --root-extras=skip --cleanup=no --safety=enable --yes' \
   "$remote/runner/bin/mb-migrator" "$remote/archive/backup.zip" "$provider" "$target_root" "$remote/stage" "$rollback_dir" "$old_url" "$new_url"
+printf -v restore_command 'MB_MIGRATOR_ARCHIVE_POLICY=%q MB_MIGRATOR_ARCHIVE_SHA256=%q %s' \
+  "$remote/archive-file-policy.json" "$expected_sha" "$restore_command"
 for arg in "${restore_args[@]}"; do printf -v restore_command '%s %q' "$restore_command" "$arg"; done
 lock_retain=yes; phase restore
 printf -v login_command 'bash -lc %q' "$restore_command"
