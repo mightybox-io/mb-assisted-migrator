@@ -87,6 +87,11 @@ try {
     $source = realpath($source);
     $target = realpath($target);
     if ($source === false || $target === false || $source === $target) refuse('invalid canonical roots');
+    // The merge skips links within a category, but follows category roots.
+    // Reject these layouts before recording evidence or changing the destination.
+    foreach (['plugins', 'themes', 'uploads'] as $category) {
+        if (is_link($target.'/'.$category)) refuse('unsupported content directory symlink');
+    }
     $files = sourceFiles($source);
     if ($mode === 'capture') {
         $links = [];

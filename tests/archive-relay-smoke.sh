@@ -26,6 +26,7 @@ php -r '
 cat > "$T/bin/wp" <<'WP'
 #!/usr/bin/env bash
 set -eu
+printf '%s\n' "$*" >> "$ARCHIVE_RELAY_TEST_ROOT/wp-calls"
 case "$*" in
   *'core is-installed'*) exit 0 ;;
   *'post list '*--format=count*) echo 2 ;;
@@ -77,6 +78,33 @@ chmod +x "$T/bin/"*
 export ARCHIVE_RELAY_REAL_RSYNC="$REAL_RSYNC"
 export PATH="$T/bin:$PATH"
 sha="$(sha256sum "$T/backup.zip" | awk '{print $1}')"
+# A category-root symlink must fail before copy, rollback or database mutation.
+for category in plugins themes uploads; do
+  fixture="$T/category-$category"
+  mkdir -p "$fixture/target/wp-content" "$fixture/managed/sample"
+  printf '<?php\n' > "$fixture/target/wp-config.php"
+  printf provider-original > "$fixture/managed/sample/plugin.php"
+  ln -s "$fixture/managed" "$fixture/target/wp-content/$category"
+  : > "$T/wp-calls"
+  if MB_MIGRATOR_ARCHIVE_POLICY="$fixture/policy.json" MB_MIGRATOR_ARCHIVE_SHA256="$sha" \
+    "$ROOT_DIR/bin/mb-migrator" restore "$T/backup.zip" --provider=wpengine \
+      --target-root="$fixture/target" --stage-dir="$fixture/stage" --rollback-dir="$fixture/rollback" \
+      --old-url=https://source.example.test --new-url=https://destination.example.test \
+      --search-replace --db-import=yes --mu-plugins=skip --root-extras=skip \
+      --cleanup=no --safety=enable --yes > "$T/category-$category.log" 2>&1; then
+    echo "Category-root symlink unexpectedly accepted: $category" >&2; exit 1
+  fi
+  grep -q 'Archive file policy validation failed' "$T/category-$category.log"
+  test ! -e "$fixture/policy.json"
+  test ! -e "$fixture/rollback"
+  test ! -e "$fixture/target/wp-content/mu-plugins/mb-migrator-safety.php"
+  test -L "$fixture/target/wp-content/$category"
+  [[ "$(cat "$fixture/managed/sample/plugin.php")" == provider-original ]]
+  [[ "$(find "$fixture/managed" -type f | wc -l)" -eq 1 ]]
+  if grep -Eq 'db (export|import)|search-replace' "$T/wp-calls"; then
+    echo 'Database operation ran before layout rejection' >&2; exit 1
+  fi
+done
 run_archive_relay() {
   "$ROOT_DIR/bin/mb-migrator" archive-relay "$T/backup.zip" --provider=wpengine \
     --destination=dest@test --target-root="$T/target" --archive-sha256="$sha" \

@@ -58,6 +58,10 @@ platform cache plugins follow the same explicit selection policy as restore.
 New links, retargeted links, changed provider files, changed staged inventories,
 missing policies and policy-binding mismatches fail verification. Preserved target
 trees containing further symlinks or special files are unsupported and fail closed.
+Destination category roots (`wp-content/plugins`, `themes`, or `uploads`) must
+not be symlinks: archive restore rejects these layouts before rollback creation,
+safety changes, content copying or database import. Links within these directories
+remain supported under the preservation policy.
 Verification never creates a baseline from current destination state. Old retained
 runs without a policy need operator-reviewed reconciliation; installing a new engine
 alone does not make an old failed run accepted, and must not trigger another import.
