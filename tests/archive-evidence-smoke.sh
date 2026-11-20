@@ -25,9 +25,9 @@ printf 'Archive content and normalization evidence passed\n'
 
 reviewed_sha="$(sha256sum "$T/reviewed.zip" | cut -d' ' -f1)"
 php "$ROOT_DIR/lib/archive-normalization.php" "$T/reviewed.zip" "$reviewed_sha" > "$T/reviewed.json"
-php -r '$r=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR); $ids=array_column($r["rules"],"rule_id"); if ($ids !== ["wpengine.mu.cache-plugin-v1","wpengine.mu.seamless-login-v1","wpengine.mu.security-auditor-v1","wpengine.mu.wpengine-common-v1"] || $r["unknown_components_count"] !== 0 || array_unique(array_column($r["rules"],"outcome")) !== ["excluded_from_source"]) { exit(1); }' "$T/reviewed.json"
+php -r '$r=json_decode(file_get_contents($argv[1]),true,512,JSON_THROW_ON_ERROR); $ids=array_column($r["rules"],"rule_id"); if ($ids !== ["wpengine.mu.cache-plugin-v1","wpengine.mu.seamless-login-v1","wpengine.mu.security-auditor-v1","wpengine.mu.update-source-selector-v1","wpengine.mu.wpengine-common-v1"] || $r["unknown_components_count"] !== 0 || array_unique(array_column($r["rules"],"outcome")) !== ["excluded_from_source"]) { exit(1); }' "$T/reviewed.json"
 for archive in "$T"/blocked-*.zip; do
   blocked_sha="$(sha256sum "$archive" | cut -d' ' -f1)"
-  if php "$ROOT_DIR/lib/archive-normalization.php" "$archive" "$blocked_sha"; then echo 'Unreviewed sibling or update selector accepted' >&2; exit 1; fi
+  if php "$ROOT_DIR/lib/archive-normalization.php" "$archive" "$blocked_sha"; then echo 'Unreviewed sibling accepted' >&2; exit 1; fi
 done
 printf 'Exact provider family exclusions passed\n'

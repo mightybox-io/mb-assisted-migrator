@@ -47,14 +47,14 @@ $z->addFile($dir.'/oversized.sql', 'wp-content/mysql.sql');
 $z->close();
 
 // Reviewed provider families: exact entrypoints and directory contents only.
-$reviewed = ['mu-plugins/wpe-cache-plugin.php', 'mu-plugins/wpe-cache-plugin', 'mu-plugins/wpe-wp-sign-on-plugin.php', 'mu-plugins/wpe-wp-sign-on-plugin', 'mu-plugins/wpengine-security-auditor.php'];
+$reviewed = ['mu-plugins/wpe-update-source-selector.php', 'mu-plugins/wpe-update-source-selector', 'mu-plugins/wpe-cache-plugin.php', 'mu-plugins/wpe-cache-plugin', 'mu-plugins/wpe-wp-sign-on-plugin.php', 'mu-plugins/wpe-wp-sign-on-plugin', 'mu-plugins/wpengine-security-auditor.php'];
 copy($dir.'/backup.zip', $dir.'/reviewed.zip');
 $z->open($dir.'/reviewed.zip');
 foreach ($reviewed as $component) {
     $z->addFromString('wp-content/'.$component.(str_ends_with($component, '.php') ? '' : '/inc/component.php'), '<?php');
 }
 $z->close();
-$blocked = ['wpe-cache-plugin-custom/custom.php', 'wpe-cache-plugin.php.bak', 'wpe-wp-sign-on-plugin-custom/custom.php', 'wpe-wp-sign-on-plugin.php.custom', 'wpengine-security-auditor.php.custom', 'wpengine-security-auditor.php/custom.php', 'wpengine-security-auditor/custom.php', 'wpe-update-source-selector.php', 'wpe-update-source-selector/classes/selector.php'];
+$blocked = ['wpe-cache-plugin-custom/custom.php', 'wpe-cache-plugin.php.bak', 'wpe-wp-sign-on-plugin-custom/custom.php', 'wpe-wp-sign-on-plugin.php.custom', 'wpengine-security-auditor.php.custom', 'wpengine-security-auditor.php/custom.php', 'wpengine-security-auditor/custom.php', 'wpe-update-source-selector.php.custom', 'wpe-update-source-selector.php/custom.php', 'wpe-update-source-selector-custom/classes/selector.php'];
 foreach ($blocked as $index => $component) {
     copy($dir.'/reviewed.zip', $dir.'/blocked-'.$index.'.zip');
     $z->open($dir.'/blocked-'.$index.'.zip');

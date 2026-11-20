@@ -18,5 +18,7 @@
   "mu-plugins/wpe-cache-plugin": "wpengine.mu.cache-plugin-v1",
   "mu-plugins/wpe-wp-sign-on-plugin.php": "wpengine.mu.seamless-login-v1",
   "mu-plugins/wpe-wp-sign-on-plugin": "wpengine.mu.seamless-login-v1",
-  "mu-plugins/wpengine-security-auditor.php": "wpengine.mu.security-auditor-v1"
+  "mu-plugins/wpengine-security-auditor.php": "wpengine.mu.security-auditor-v1",
+  "mu-plugins/wpe-update-source-selector.php": "wpengine.mu.update-source-selector-v1",
+  "mu-plugins/wpe-update-source-selector": "wpengine.mu.update-source-selector-v1"
 }

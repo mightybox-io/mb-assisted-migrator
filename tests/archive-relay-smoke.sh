@@ -18,6 +18,8 @@ php -r '
     "wp-content/themes/managed/style.css" => "source-theme",
     "wp-content/uploads/evidence.txt" => "archive-evidence",
     "wp-content/mu-plugins/wpengine-common/loader.php" => "excluded",
+    "wp-content/mu-plugins/wpe-update-source-selector.php" => "excluded",
+    "wp-content/mu-plugins/wpe-update-source-selector/classes/selector.php" => "excluded",
     "wp-content/object-cache.php" => "excluded"
   ] as $path => $body) $zip->addFromString($path, $body);
   $zip->close();
@@ -140,6 +142,8 @@ test -f "$T/target/wp-content/plugins/sample/plugin.php"
 test -f "$T/target/wp-content/themes/sample/style.css"
 test ! -e "$T/target/wp-content/mu-plugins/wpengine-common/loader.php"
 test ! -e "$T/target/wp-content/object-cache.php"
+test ! -e "$T/target/wp-content/mu-plugins/wpe-update-source-selector.php"
+test ! -e "$T/target/wp-content/mu-plugins/wpe-update-source-selector/classes/selector.php"
 test -f "$T/target/wp-content/mu-plugins/mb-migrator-safety.php"
 verify_output="$("$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@test \
   --target-root="$T/target" --archive-sha256="$sha" \
