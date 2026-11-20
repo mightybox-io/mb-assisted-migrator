@@ -1127,5 +1127,15 @@ one exclusion rule, including both loader and supporting files. These exclusions
 remove WP Engine caching integration, portal login, and security audit logging;
 they do not delete WordPress users or database options. Destination caching and
 admin access require separate acceptance. Similar names remain blocked.
-`wpe-update-source-selector.php` and its directory remain unreviewed and blocked:
-removing them could discard an intentional update-source preference.
+`wpe-update-source-selector.php` and `wpe-update-source-selector/` are now an
+explicit reviewed exclusion (`wpengine.mu.update-source-selector-v1`). The restore
+screen discloses that destination update configuration takes over before the
+customer types the restore confirmation. Customers needing their existing source
+must use Guided Migration for a reviewed preservation plan. Do not promise a
+specific mirror or WordPress.org: destination filters may select another source.
+The imported `wpe_uss_site_preference` option is retained, not deleted or rewritten;
+without the source selector it no longer controls routing. Other option data,
+plugins, themes and users retain the existing migration policy. Exact loader and
+directory boundaries only; lookalikes remain blocked. Future acceptance must check
+destination updates and administrator access. This policy is not live-accepted and
+requires a reviewed engine commit and matching app pin before rollout.
