@@ -362,6 +362,8 @@ set_log_phase files
 if [[ -n "${MB_MIGRATOR_ARCHIVE_POLICY:-}" && "$DRY_RUN" -ne 1 ]]; then
   [[ "$PROVIDER" == wpengine && "$SOURCE_IS_DIRECTORY" -eq 0 && "$MU_PLUGINS_MODE" == skip && "$ROOT_EXTRAS_MODE" == skip && "${REPLACE_MANAGED_SYMLINKS:-0}" -eq 0 ]] || die "Unsupported archive verification policy"
   [[ "$(php -r 'echo hash_file("sha256", $argv[1]);' "$ARCHIVE")" == "${MB_MIGRATOR_ARCHIVE_SHA256:-}" ]] || die "Archive policy digest mismatch"
+  php "$ROOT_DIR/lib/archive-content.php" inspect "$ARCHIVE" "$MB_MIGRATOR_ARCHIVE_SHA256" "$OLD_URL" "$NEW_URL" >/dev/null
+  php "$ROOT_DIR/lib/archive-normalization.php" "$ARCHIVE" "$MB_MIGRATOR_ARCHIVE_SHA256" >/dev/null
   php "$ROOT_DIR/lib/archive-file-policy.php" capture "$MB_MIGRATOR_ARCHIVE_POLICY" \
     "$STAGE_DIR/$PROVIDER_WEB_ROOT/wp-content" "$TARGET_ROOT/wp-content" "$MB_MIGRATOR_ARCHIVE_SHA256"
 fi

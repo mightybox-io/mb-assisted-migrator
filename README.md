@@ -1090,3 +1090,42 @@ stand-ins. Run them alongside the existing regression suites:
 bash tests/portability-smoke.sh
 bash tests/relay-smoke.sh
 ```
+
+### Backup ZIP content and normalization evidence
+
+The archive route now parses posts/pages directly from the checksum-bound ZIP SQL
+before any destination command, without executing that SQL. Verification compares
+IDs, type, status, slug, title, body, excerpt, parent and menu order after the exact
+source-to-destination URL substitution. Missing, additional or changed rows fail
+both held and released verification. Receipts expose only a count and SHA-256.
+This covers posts/pages, not arbitrary plugin tables or custom post types.
+
+The supported SQL subset is a single backtick-quoted `*_posts` CREATE TABLE and
+plain mysqldump INSERT VALUES rows with scalar values, including extended inserts
+and escaped strings. Ambiguous tables, column-list inserts, unsupported quoting or
+SQL modes, malformed/truncated data and over-limit input refuse before restore.
+SQL and destination JSON are each bounded to 64 MiB, selected rows to 100,000,
+and statement tokens to 1,000,000. No general SQL interpreter is used. A larger or
+unsupported dump needs a reviewed adapter change or Guided Migration.
+
+`lib/wp-engine-archive-rules.json` defines exact reviewed exclusions. Unknown MU
+plugins/drop-ins and unreviewed names matching legacy cache exclusions are blocked;
+they are never silently dropped or automatically allowed by a substring match.
+The app must preview the same rule IDs and require matching `wp-engine-v1` outcomes
+in the receipt. Source cache integrations are omitted; destination-owned equivalents
+are retained. The catalog must stay synchronized with the app's
+`MigrationArchiveNormalization::RULES` when adding a reviewed rule.
+
+Existing receipts without content/normalization evidence are not upgraded by
+asserting success. Do not rerun or synthesize a baseline for a retained failed
+migration. These source changes do not authorize deployment or another import.
+
+Reviewed provider exclusions cover `wpe-cache-plugin.php` and `wpe-cache-plugin/`,
+`wpe-wp-sign-on-plugin.php` and `wpe-wp-sign-on-plugin/`, and
+`wpengine-security-auditor.php` under `wp-content/mu-plugins/`. Each family reports
+one exclusion rule, including both loader and supporting files. These exclusions
+remove WP Engine caching integration, portal login, and security audit logging;
+they do not delete WordPress users or database options. Destination caching and
+admin access require separate acceptance. Similar names remain blocked.
+`wpe-update-source-selector.php` and its directory remain unreviewed and blocked:
+removing them could discard an intentional update-source preference.

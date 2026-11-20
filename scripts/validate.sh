@@ -36,11 +36,14 @@ printf 'Checking PHP helper syntax...\n'
 php -l lib/migration-safety.php
 php -l lib/wpengine-zip.php
 php -l lib/archive-file-policy.php
+php -l lib/archive-content.php
+php -l lib/archive-normalization.php
 
 printf 'Running ShellCheck...\n'
 shellcheck -x -S warning "${shell_files[@]}"
 
 smoke_suites=(
+  tests/archive-evidence-smoke.sh
   tests/archive-file-policy-smoke.sh
   tests/archive-relay-smoke.sh
   tests/smoke.sh

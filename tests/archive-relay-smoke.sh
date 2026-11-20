@@ -12,7 +12,7 @@ printf 'destination-known-hosts\n' > "$T/destination-known-hosts"
 php -r '
   $zip = new ZipArchive(); $zip->open($argv[1], ZipArchive::CREATE);
   foreach ([
-    "wp-content/mysql.sql" => "CREATE TABLE `wp_options` (`id` bigint);\n",
+    "wp-content/mysql.sql" => "CREATE TABLE `wp_posts` (`ID` bigint, `post_type` text, `post_status` text, `post_name` text, `post_title` text, `post_content` text, `post_excerpt` text, `post_parent` bigint, `menu_order` int);\nINSERT INTO `wp_posts` VALUES (1,".chr(39)."post".chr(39).",".chr(39)."publish".chr(39).",".chr(39)."evidence".chr(39).",".chr(39)."Title".chr(39).",".chr(39)."Body".chr(39).",".chr(39).chr(39).",0,0);\n",
     "wp-content/plugins/sample/plugin.php" => "plugin",
     "wp-content/themes/sample/style.css" => "theme",
     "wp-content/themes/managed/style.css" => "source-theme",
@@ -29,6 +29,10 @@ set -eu
 printf '%s\n' "$*" >> "$ARCHIVE_RELAY_TEST_ROOT/wp-calls"
 case "$*" in
   *'core is-installed'*) exit 0 ;;
+  *'post list '*--format=json*)
+    if [[ -f "$ARCHIVE_RELAY_TEST_ROOT/corrupt-content" ]]; then echo '[]'; else
+      echo '[{"ID":1,"post_type":"post","post_status":"publish","post_name":"evidence","post_title":"Title","post_content":"Body","post_excerpt":"","post_parent":0,"menu_order":0}]'
+    fi ;;
   *'post list '*--format=count*) echo 2 ;;
   *'user list --role=administrator --format=count'*) echo 1 ;;
   *'user list --format=count'*) echo 1 ;;
@@ -47,6 +51,7 @@ cat > "$T/bin/ssh" <<'SSH'
 #!/usr/bin/env bash
 set -eu
 while [[ "${1:-}" == -* ]]; do shift 2; done
+printf called >> "$ARCHIVE_RELAY_TEST_ROOT/ssh-calls"
 host="$1"; shift
 [[ "$host" == dest@test ]] || exit 91
 export HOME="$ARCHIVE_RELAY_TEST_ROOT/home"
@@ -78,6 +83,18 @@ chmod +x "$T/bin/"*
 export ARCHIVE_RELAY_REAL_RSYNC="$REAL_RSYNC"
 export PATH="$T/bin:$PATH"
 sha="$(sha256sum "$T/backup.zip" | awk '{print $1}')"
+cp "$T/backup.zip" "$T/unknown.zip"
+php -r '$z=new ZipArchive();$z->open($argv[1]);$z->addFromString("wp-content/mu-plugins/customer.php","custom");$z->close();' "$T/unknown.zip"
+unknown_sha="$(sha256sum "$T/unknown.zip" | cut -d' ' -f1)"
+if "$ROOT_DIR/bin/mb-migrator" archive-relay "$T/unknown.zip" --provider=wpengine \
+  --destination=dest@test --target-root="$T/target" --archive-sha256="$unknown_sha" \
+  --old-url=https://source.example.test --new-url=https://destination.example.test \
+  --destination-identity="$T/destination-key" --destination-known-hosts="$T/destination-known-hosts" \
+  --state-dir="$T/state" > "$T/unknown.log" 2>&1; then
+  echo 'Unknown component reached restore' >&2; exit 1
+fi
+test ! -e "$T/ssh-calls"
+grep -q 'Archive normalization requires review' "$T/unknown.log"
 # A category-root symlink must fail before copy, rollback or database mutation.
 for category in plugins themes uploads; do
   fixture="$T/category-$category"
@@ -136,6 +153,18 @@ grep -q '"status":"verified"' <<< "$verify_output"
 grep -q '"archive":true' <<< "$verify_output"
 grep -q '"files":true' <<< "$verify_output"
 grep -q '"rollback":true' <<< "$verify_output"
+grep -q '"content":true' <<< "$verify_output"
+grep -q '"normalization":true' <<< "$verify_output"
+touch "$T/corrupt-content"
+if "$ROOT_DIR/bin/mb-migrator" archive-verify --destination=dest@test \
+  --target-root="$T/target" --archive-sha256="$sha" \
+  --run-id=019a4dc8-d9ff-73f2-8e98-2e6905994c10 --expected-url=https://destination.example.test \
+  --expected-safety=enabled --destination-identity="$T/destination-key" \
+  --destination-known-hosts="$T/destination-known-hosts" --json > "$T/content-failure.json"; then
+  echo 'Missing restored posts unexpectedly verified' >&2; exit 1
+fi
+grep -q '"content":false' "$T/content-failure.json"
+rm "$T/corrupt-content"
 # Verification must consume the original pre-copy record, never rebaseline.
 relay_id="$(printf '%s' "$sha|dest@test|22|$T/target" | sha256sum | cut -c1-20)"
 policy="$T/home/.local/state/mb-migrator/archive-relay/$relay_id/archive-file-policy.json"
