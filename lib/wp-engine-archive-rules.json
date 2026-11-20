@@ -1,0 +1,22 @@
+{
+  "mu-plugins/wpengine-common": "wpengine.mu.wpengine-common-v1",
+  "mu-plugins/force-strong-passwords": "wpengine.mu.force-strong-passwords-v1",
+  "mu-plugins/mu-plugin.php": "wpengine.mu.loader-v1",
+  "mu-plugins/slt-force-strong-passwords.php": "wpengine.mu.slt-force-strong-passwords-v1",
+  "mu-plugins/stop-long-comments.php": "wpengine.mu.stop-long-comments-v1",
+  "object-cache.php": "wpengine.dropin.object-cache-v1",
+  "advanced-cache.php": "wpengine.dropin.advanced-cache-v1",
+  "plugins/nginx-helper": "platform.plugin.nginx-helper-v1",
+  "plugins/redis-cache": "platform.plugin.redis-cache-v1",
+  "plugins/redis-object-cache": "platform.plugin.redis-object-cache-v1",
+  "plugins/redis-cache-pro": "platform.plugin.redis-cache-pro-v1",
+  "plugins/gridpane-redis-object-cache": "platform.plugin.gridpane-redis-object-cache-v1",
+  "plugins/wp-redis": "platform.plugin.wp-redis-v1",
+  "plugins/wp-redis-cache": "platform.plugin.wp-redis-cache-v1",
+  "plugins/object-cache-pro": "platform.plugin.object-cache-pro-v1",
+  "mu-plugins/wpe-cache-plugin.php": "wpengine.mu.cache-plugin-v1",
+  "mu-plugins/wpe-cache-plugin": "wpengine.mu.cache-plugin-v1",
+  "mu-plugins/wpe-wp-sign-on-plugin.php": "wpengine.mu.seamless-login-v1",
+  "mu-plugins/wpe-wp-sign-on-plugin": "wpengine.mu.seamless-login-v1",
+  "mu-plugins/wpengine-security-auditor.php": "wpengine.mu.security-auditor-v1"
+}

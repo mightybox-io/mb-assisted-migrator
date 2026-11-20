@@ -73,6 +73,9 @@ need_cmd ssh; need_cmd rsync; need_cmd tar; need_cmd php
 if command -v sha256sum >/dev/null 2>&1; then hash=(sha256sum); else hash=(shasum -a 256); fi
 actual_sha="$("${hash[@]}" "$archive" | awk '{print $1}')"
 [[ "$actual_sha" == "$expected_sha" ]] || die "Backup archive digest changed after inspection"
+# Refuse unsupported content or normalization before any destination command.
+php "$ROOT_DIR/lib/archive-content.php" inspect "$archive" "$expected_sha" "$old_url" "$new_url" >/dev/null
+php "$ROOT_DIR/lib/archive-normalization.php" "$archive" "$expected_sha" >/dev/null
 expanded_bytes="$(php -r '
   $zip = new ZipArchive();
   if ($zip->open($argv[1]) !== true) exit(2);

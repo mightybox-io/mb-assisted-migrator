@@ -66,15 +66,18 @@ content_count="$(value_for content_count)"; media_count="$(value_for media_count
 http_status=0
 if command -v curl >/dev/null 2>&1; then http_status="$(curl --proto '=https' --tlsv1.2 -L -sS -o /dev/null -w '%{http_code}' --max-time 30 "$expected_url" 2>/dev/null || true)"; [[ "$http_status" =~ ^[23][0-9][0-9]$ ]] && public_https_check=yes; fi
 [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=0
+content_check="$(value_for content)"; content_sha256="$(value_for content_sha256)"; normalization_check="$(value_for normalization)"; normalization_json="$(value_for normalization_json)"
 status=verified; reason=""
-for check in "$archive_check" "$files_check" "$wordpress_check" "$urls_check" "$administrator_check" "$serialized_urls_check" "$safety_check" "$rollback_check" "$public_https_check"; do
+for check in "$content_check" "$normalization_check" "$archive_check" "$files_check" "$wordpress_check" "$urls_check" "$administrator_check" "$serialized_urls_check" "$safety_check" "$rollback_check" "$public_https_check"; do
   if [[ "$check" != yes ]]; then status=failed; reason=migration.destination_verification_failed; break; fi
 done
 bool_json() { [[ "$1" == yes ]] && printf true || printf false; }
 if [[ "$json" == yes ]]; then
   printf '{"schema_version":1,"tool_version":"%s","run_id":"%s","verification_basis":"immutable_provider_archive","status":"%s","reason_code":%s,"verified_at":"%s","checks":{' "$(<"$ROOT_DIR/VERSION")" "$run_id" "$status" "$([[ -z "$reason" ]] && printf null || printf '"%s"' "$reason")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  printf '"archive":%s,"files":%s,"wordpress":%s,"urls":%s,"administrator":%s,"serialized_urls":%s,"safety":%s,"rollback":%s,"public_https":%s},' "$(bool_json "$archive_check")" "$(bool_json "$files_check")" "$(bool_json "$wordpress_check")" "$(bool_json "$urls_check")" "$(bool_json "$administrator_check")" "$(bool_json "$serialized_urls_check")" "$(bool_json "$safety_check")" "$(bool_json "$rollback_check")" "$(bool_json "$public_https_check")"
-  printf '"evidence":{"archive_sha256":"%s","migrated_files_count":%s,"content_count":%s,"media_count":%s,"administrator_count":%s,"http_status":%s,"safety_state":"%s","rollback_state":"ready"}}\n' "$archive_sha" "${migrated_files_count:-0}" "${content_count:-0}" "${media_count:-0}" "${administrator_count:-0}" "$http_status" "$expected_safety"
+  printf '"archive":%s,"files":%s,"wordpress":%s,"urls":%s,"administrator":%s,"serialized_urls":%s,"safety":%s,"rollback":%s,"public_https":%s,' "$(bool_json "$archive_check")" "$(bool_json "$files_check")" "$(bool_json "$wordpress_check")" "$(bool_json "$urls_check")" "$(bool_json "$administrator_check")" "$(bool_json "$serialized_urls_check")" "$(bool_json "$safety_check")" "$(bool_json "$rollback_check")" "$(bool_json "$public_https_check")"
+  printf '"content":%s,"normalization":%s},' "$(bool_json "$content_check")" "$(bool_json "$normalization_check")"
+  printf '"normalization":%s,' "${normalization_json:-null}"
+  printf '"evidence":{"archive_sha256":"%s","content_sha256":"%s","migrated_files_count":%s,"content_count":%s,"media_count":%s,"administrator_count":%s,"http_status":%s,"safety_state":"%s","rollback_state":"ready"}}\n' "$archive_sha" "$content_sha256" "${migrated_files_count:-0}" "${content_count:-0}" "${media_count:-0}" "${administrator_count:-0}" "$http_status" "$expected_safety"
 else
   [[ "$status" == verified ]] && log "Archive destination verification passed" || warn "Archive destination verification failed"
 fi
