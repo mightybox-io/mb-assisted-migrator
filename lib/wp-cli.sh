@@ -97,6 +97,7 @@ wpcli_search_replace() {
   local old_url="$2"
   local new_url="$3"
   local prefix=""
+  local skip_columns="guid"
   local -a exclusions=()
 
   # The archive path must never rewrite WordPress identities or profile data.
@@ -107,6 +108,7 @@ wpcli_search_replace() {
     prefix="$(wp_in_root "$target_root" --skip-plugins --skip-themes db prefix)" || die "Archive database prefix is unavailable"
     [[ "$prefix" =~ ^[A-Za-z0-9_]+$ ]] || die "Archive database prefix is invalid"
     exclusions+=("--skip-tables=${prefix}users,${prefix}usermeta")
+    skip_columns="guid,user_email,user_login,user_nicename"
   fi
 
   if ! command -v wp >/dev/null 2>&1; then
@@ -117,12 +119,12 @@ wpcli_search_replace() {
   fi
 
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
-    wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid "${exclusions[@]}" --dry-run
+    wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects "--skip-columns=$skip_columns" "${exclusions[@]}" --dry-run
     return 0
   fi
 
   confirm "Run serialized-safe search-replace from $old_url to $new_url?" || die "Search-replace cancelled"
-  if ! wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid "${exclusions[@]}"; then
+  if ! wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects "--skip-columns=$skip_columns" "${exclusions[@]}"; then
     warn "WP-CLI search-replace failed; URL rewrite is pending"
     report "URL rewrite pending: WP-CLI command failed"
     return 0

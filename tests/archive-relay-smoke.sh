@@ -140,6 +140,9 @@ grep -q 'db prefix' "$T/wp-calls"
 if grep 'search-replace' "$T/wp-calls" | grep -vq -- '--skip-tables=wp_users,wp_usermeta'; then
   echo 'Archive URL replacement or verification included WordPress identity tables' >&2; exit 1
 fi
+if grep 'search-replace' "$T/wp-calls" | grep -vq -- '--skip-columns=guid,user_email,user_login,user_nicename'; then
+  echo 'Archive URL replacement or verification included WordPress identity columns' >&2; exit 1
+fi
 test -L "$T/target/wp-content/themes/managed"
 [[ "$(cat "$T/platform-theme/style.css")" == platform-theme ]]
 [[ "$(cat "$T/target/wp-content/uploads/evidence.txt")" == archive-evidence ]]
