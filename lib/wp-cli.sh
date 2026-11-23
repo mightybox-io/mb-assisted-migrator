@@ -96,6 +96,18 @@ wpcli_search_replace() {
   local target_root="$1"
   local old_url="$2"
   local new_url="$3"
+  local prefix=""
+  local -a exclusions=()
+
+  # The archive path must never rewrite WordPress identities or profile data.
+  # Source and destination must be full URLs, so email domains are not search
+  # terms; skipping these tables is a second independent boundary.
+  if [[ -n "${MB_MIGRATOR_ARCHIVE_POLICY:-}" ]]; then
+    [[ "$old_url" =~ ^https?://[^[:space:]]+$ && "$new_url" =~ ^https?://[^[:space:]]+$ ]] || die "Archive URL replacement requires full HTTP(S) URLs"
+    prefix="$(wp_in_root "$target_root" --skip-plugins --skip-themes db prefix)" || die "Archive database prefix is unavailable"
+    [[ "$prefix" =~ ^[A-Za-z0-9_]+$ ]] || die "Archive database prefix is invalid"
+    exclusions+=("--skip-tables=${prefix}users,${prefix}usermeta")
+  fi
 
   if ! command -v wp >/dev/null 2>&1; then
     warn "WP-CLI is unavailable; URL rewrite is pending"
@@ -105,12 +117,12 @@ wpcli_search_replace() {
   fi
 
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
-    wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid --dry-run
+    wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid "${exclusions[@]}" --dry-run
     return 0
   fi
 
   confirm "Run serialized-safe search-replace from $old_url to $new_url?" || die "Search-replace cancelled"
-  if ! wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid; then
+  if ! wp_in_root "$target_root" --skip-plugins --skip-themes search-replace "$old_url" "$new_url" --all-tables-with-prefix --precise --recurse-objects --skip-columns=guid "${exclusions[@]}"; then
     warn "WP-CLI search-replace failed; URL rewrite is pending"
     report "URL rewrite pending: WP-CLI command failed"
     return 0

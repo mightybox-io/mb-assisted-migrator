@@ -938,6 +938,13 @@ uses the existing serialized-safe WP-CLI path. ZIP imports require explicit
 `--old-url` when rewriting URLs. Archives with traversal paths, duplicate entries,
 links, special files, or ambiguous database locations are rejected.
 
+The managed archive relay requires full HTTP(S) source and destination URLs.
+Its URL replacement and subsequent dry-run verification exclude the WordPress
+users and usermeta tables, so migration does not rewrite account names, email
+addresses or profile data. Other plugin data, including form settings, may
+contain URLs and still needs customer review before release; this exclusion
+does not establish that every form or integration works after migration.
+
 ## Relay through an intermediary
 
 When the hosts cannot connect to each other, run this on a workstation that can
