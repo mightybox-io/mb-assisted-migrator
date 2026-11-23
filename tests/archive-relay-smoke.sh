@@ -40,6 +40,7 @@ case "$*" in
   *'user list --format=count'*) echo 1 ;;
   *'option get home'*|*'option get siteurl'*) echo https://destination.example.test ;;
   *'db query SELECT 1'*) echo 1 ;;
+  *'db prefix'*) echo wp_ ;;
   *'db export '*) while [[ "$1" != export ]]; do shift; done; printf 'CREATE TABLE old_table (`id` int);\n' > "$2" ;;
   *'db import '*) exit 0 ;;
   *'search-replace '*--format=count*) echo 0 ;;
@@ -135,6 +136,10 @@ mkdir -p "$T/platform-theme" "$T/target/wp-content/themes"
 printf platform-theme > "$T/platform-theme/style.css"
 ln -s "$T/platform-theme" "$T/target/wp-content/themes/managed"
 run_archive_relay > "$T/restore.log"
+grep -q 'db prefix' "$T/wp-calls"
+if grep 'search-replace' "$T/wp-calls" | grep -vq -- '--skip-tables=wp_users,wp_usermeta'; then
+  echo 'Archive URL replacement or verification included WordPress identity tables' >&2; exit 1
+fi
 test -L "$T/target/wp-content/themes/managed"
 [[ "$(cat "$T/platform-theme/style.css")" == platform-theme ]]
 [[ "$(cat "$T/target/wp-content/uploads/evidence.txt")" == archive-evidence ]]
