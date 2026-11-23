@@ -37,7 +37,7 @@ home="$(wp_site option get home 2>/dev/null || true)"; siteurl="$(wp_site option
 admin_count="$(wp_site user list --role=administrator --format=count 2>/dev/null || true)"; [[ "$admin_count" =~ ^[0-9]+$ && "$admin_count" -gt 0 ]] && administrator=yes
 prefix="$(wp_site db prefix 2>/dev/null || true)"
 if [[ "$prefix" =~ ^[A-Za-z0-9_]+$ ]]; then
-  old_matches="$(wp_site search-replace "$old_url" "$expected_url" --all-tables-with-prefix --skip-columns=guid --skip-tables="${prefix}users,${prefix}usermeta" --dry-run --precise --format=count 2>/dev/null || true)"
+  old_matches="$(wp_site search-replace "$old_url" "$expected_url" --all-tables-with-prefix --skip-columns=guid,user_email,user_login,user_nicename --skip-tables="${prefix}users,${prefix}usermeta" --dry-run --precise --format=count 2>/dev/null || true)"
   [[ "$old_matches" == 0 ]] && serialized_urls=yes
 fi
 content=no; content_count=0; content_sha256=""
