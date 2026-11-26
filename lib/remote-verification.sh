@@ -46,6 +46,10 @@ is_platform_plugin_excluded() {
 wp_site core is-installed >/dev/null 2>&1 || fail "WordPress does not bootstrap"
 home="$(wp_site option get home 2>/dev/null)" || fail "WordPress home is unavailable"
 siteurl="$(wp_site option get siteurl 2>/dev/null)" || fail "WordPress siteurl is unavailable"
+permalink_structure="$(wp_site option get permalink_structure 2>/dev/null)" || fail "WordPress permalink configuration is unavailable"
+permalink_mode=plain
+[[ -z "$permalink_structure" ]] || permalink_mode=pretty
+permalink_sha256="$(printf '%s' "$permalink_structure" | hash_stream)"
 [[ "$home" =~ ^https?://[^[:space:]]+$ && "$siteurl" =~ ^https?://[^[:space:]]+$ ]] || fail "WordPress URLs are invalid"
 
 content_json="$(wp_site post list \
@@ -132,6 +136,8 @@ if [[ "$role" == destination ]]; then
   fi
 fi
 
+printf 'permalink_mode=%s\n' "$permalink_mode"
+printf 'permalink_sha256=%s\n' "$permalink_sha256"
 printf 'wordpress=installed\n'
 printf 'home=%s\n' "$home"
 printf 'siteurl=%s\n' "$siteurl"

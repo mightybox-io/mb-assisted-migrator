@@ -84,10 +84,13 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '[[ "$PWD" == "$WP_EXPECTED_ROOT" ]]' \
   '[[ " $* " != *" --path="* ]]' \
   'if [[ " $* " == *" search-replace "* ]]; then printf '\''%s\n'\'' "$*" > "$WP_REWRITE_MARKER"; exit 0; fi' \
+  'if [[ " $* " == *" option get permalink_structure "* ]]; then [[ "${WP_MODE_FAIL:-0}" != 1 ]] || exit 7; printf "%s" "${WP_PERMALINK_STRUCTURE:-}"; exit 0; fi' \
+  'if [[ " $* " == *" rewrite flush "* ]]; then [[ "${WP_FLUSH_FAIL:-0}" != 1 ]] || exit 8; touch "$WP_REWRITE_MARKER.flushed"; exit 0; fi' \
   '[[ " $* " == *" cache flush "* ]]' > "$FAKE_BIN/wp"
 chmod +x "$FAKE_BIN/wp"
 export WP_EXPECTED_ROOT="$TARGET"
 export WP_REWRITE_MARKER="$TEST_ROOT/wp-rewrite"
+run_replacement() {
 PATH="$FAKE_BIN:$PATH" bash -c '
   set -euo pipefail
   source "$1/lib/util.sh"
@@ -97,6 +100,17 @@ PATH="$FAKE_BIN:$PATH" bash -c '
   REPORT_FILE="$2/report"
   wpcli_search_replace "$2/target" https://old.example.test https://new.example.test
 ' bash "$ROOT_DIR" "$TEST_ROOT"
+ }
+run_replacement
+test ! -e "$WP_REWRITE_MARKER.flushed"
+WP_PERMALINK_STRUCTURE='/%postname%/' run_replacement
+test -f "$WP_REWRITE_MARKER.flushed"
+if WP_PERMALINK_STRUCTURE='/%postname%/' WP_FLUSH_FAIL=1 run_replacement; then
+  echo 'Failed rewrite flush unexpectedly succeeded' >&2; exit 1
+fi
+if WP_MODE_FAIL=1 run_replacement; then
+  echo 'Unreadable permalink configuration unexpectedly succeeded' >&2; exit 1
+fi
 grep -q 'https://old.example.test https://new.example.test' "$WP_REWRITE_MARKER"
 
 printf 'native database smoke test passed\n'

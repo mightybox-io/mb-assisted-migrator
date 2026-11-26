@@ -37,6 +37,9 @@ case "$*" in
     [[ "${RELAY_FAIL_DATABASE:-0}" != 1 ]] || exit 77
     while [[ "$1" != export ]]; do shift; done
     printf 'CREATE TABLE `wp_options` (`id` int);\n' > "$2" ;;
+  *'option get permalink_structure'*)
+    if [[ "${RELAY_TEST_HOST:-}" == dest@test && "${RELAY_PERMALINK_MISMATCH:-0}" == 1 ]]; then echo '/different/%postname%/';
+    else printf '%s' "${RELAY_PERMALINK_STRUCTURE:-}"; fi ;;
   *'option get siteurl'*|*'option get home'*) echo https://source.example.test ;;
   *) exit 1 ;;
 esac
@@ -121,6 +124,7 @@ doctor_output="$("$ROOT_DIR/bin/mb-migrator" relay-doctor source@test \
   --json)"
 grep -q '"status":"ready"' <<< "$doctor_output"
 grep -q '"schema_version":1' <<< "$doctor_output"
+grep -q '"permalink_mode":"plain"' <<< "$doctor_output"
 grep -q '"content_state":"clean"' <<< "$doctor_output"
 grep -q '"profile_id":"wp-engine-v1"' <<< "$doctor_output"
 grep -q '"rule_ids":\["wpengine.mu.wpengine-common-v1"\]' <<< "$doctor_output"
@@ -190,6 +194,13 @@ grep -q '"public_https":true' "$T/verified.json"
 grep -q '"profile_id":"wp-engine-v1"' "$T/verified.json"
 grep -q '"rule_id":"wpengine.mu.wpengine-common-v1","outcome":"excluded"' "$T/verified.json"
 grep -q '"unknown_components_count":1' "$T/verified.json"
+grep -q '"permalink_mode":"plain"' "$T/verified.json"
+RELAY_PERMALINK_STRUCTURE='/%postname%/' verify_relay > "$T/pretty.json"
+grep -q '"permalink_mode":"pretty"' "$T/pretty.json"
+if RELAY_PERMALINK_STRUCTURE='/%postname%/' RELAY_PERMALINK_MISMATCH=1 verify_relay > "$T/mode-mismatch.json"; then
+  echo 'Different pretty permalink structures unexpectedly verified' >&2; exit 1
+fi
+grep -q '"permalink_mode":false' "$T/mode-mismatch.json"
 printf corrupt > "$T/target/wp-content/uploads/test.txt"
 if verify_relay > "$T/corrupt-verification.json"; then
   echo 'Corrupt destination media unexpectedly verified' >&2; exit 1

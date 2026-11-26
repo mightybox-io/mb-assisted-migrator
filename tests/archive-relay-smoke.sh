@@ -38,6 +38,7 @@ case "$*" in
   *'post list '*--format=count*) echo 2 ;;
   *'user list --role=administrator --format=count'*) echo 1 ;;
   *'user list --format=count'*) echo 1 ;;
+  *'option get permalink_structure'*) printf '' ;;
   *'option get home'*|*'option get siteurl'*) echo https://destination.example.test ;;
   *'db query SELECT 1'*) echo 1 ;;
   *'db prefix'*) echo wp_ ;;

@@ -48,7 +48,7 @@ emit_result() {
   local status="$1" reason="$2" message="$3" source_wp="${4:-unknown}" source_rsync="${5:-unknown}"
   local target_wp="${6:-unknown}" available_kb="${7:-0}" destination_content="${8:-unknown}" source_files_kb="${9:-0}"
   if [[ "$json" == yes ]]; then
-    printf '{"schema_version":1,"tool_version":"%s","status":"%s","reason_code":%s,"message":"%s","source":{"wp_cli":"%s","rsync":"%s","files_kb":%s},"destination":{"wordpress":"%s","content_state":"%s","rsync":"available","available_kb":%s},"normalization":{"profile_id":"%s","rule_ids":%s,"unknown_components_count":%s}}\n' \
+    printf '{"schema_version":1,"tool_version":"%s","status":"%s","reason_code":%s,"message":"%s","source":{"wp_cli":"%s","rsync":"%s","files_kb":%s,"permalink_mode":"%s"},"destination":{"wordpress":"%s","content_state":"%s","rsync":"available","available_kb":%s},"normalization":{"profile_id":"%s","rule_ids":%s,"unknown_components_count":%s}}\n' \
       "$(json_escape "$(<"$ROOT_DIR/VERSION")")" \
       "$(json_escape "$status")" \
       "$([[ -z "$reason" ]] && printf null || printf '"%s"' "$(json_escape "$reason")")" \
@@ -56,6 +56,7 @@ emit_result() {
       "$(json_escape "$source_wp")" \
       "$(json_escape "$source_rsync")" \
       "$source_files_kb" \
+      "${source_permalink_mode:-unknown}" \
       "$(json_escape "$target_wp")" \
       "$(json_escape "$destination_content")" \
       "$available_kb" \
@@ -168,6 +169,8 @@ if ! target_output="$(ssh "${dest_ssh[@]}" "$destination" bash -s -- "$target_ro
 fi
 
 value_for() { printf '%s\n' "$1" | awk -F= -v key="$2" '$1 == key {sub(/^[^=]*=/, ""); print; exit}'; }
+source_permalink_mode="$(value_for "$source_output" permalink_mode)"
+case "$source_permalink_mode" in plain|pretty) ;; *) source_permalink_mode=unknown ;; esac
 source_wp="$(value_for "$source_output" wp_cli)"
 source_rsync="$(value_for "$source_output" rsync)"
 source_files_kb="$(value_for "$source_output" files_kb)"

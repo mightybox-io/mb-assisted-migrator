@@ -290,6 +290,12 @@ case "$command_name" in
     files_kb="$(du -sk "$source_root/." 2>/dev/null | awk 'NR == 1 {print $1}')"
     [[ "$files_kb" =~ ^[0-9]+$ ]] || fail "source file size could not be measured"
     printf 'files_kb=%s\n' "$files_kb"
+    permalink_mode=unknown
+    if command -v wp >/dev/null 2>&1 && permalink_structure="$(source_wp --skip-plugins --skip-themes option get permalink_structure 2>/dev/null)"; then
+      permalink_mode=plain
+      [[ -z "$permalink_structure" ]] || permalink_mode=pretty
+    fi
+    printf 'permalink_mode=%s\n' "$permalink_mode"
     normalization_scan
     ;;
   export-db) export_database ;;
