@@ -96,6 +96,7 @@ wpcli_search_replace() {
   local target_root="$1"
   local old_url="$2"
   local new_url="$3"
+  local permalink_structure=""
   local prefix=""
   local skip_columns="guid"
   local -a exclusions=()
@@ -130,6 +131,13 @@ wpcli_search_replace() {
     return 0
   fi
   report "Ran search-replace from $old_url to $new_url"
+  permalink_structure="$(wp_in_root "$target_root" --skip-plugins --skip-themes option get permalink_structure)" || die "Cannot verify destination permalink configuration"
+  if [[ -n "$permalink_structure" ]]; then
+    wp_in_root "$target_root" --skip-plugins --skip-themes rewrite flush || die "Destination permalink rule refresh failed"
+    report "Pretty permalink rules refreshed without changing their structure"
+  else
+    report "Plain permalink mode preserved; rewrite flush not required"
+  fi
   if wp_in_root "$target_root" --skip-plugins --skip-themes cache flush; then
     log "Flushed the WordPress object cache after URL replacement"
     report "WordPress object cache flushed"

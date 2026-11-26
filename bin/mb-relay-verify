@@ -130,6 +130,18 @@ destination_output="$(ssh "${dest_ssh[@]}" "$destination" bash -s -- \
   destination "$target_root" "$expected_url" "$expected_safety" "$rollback_dir" "$source_url" "$safety_sha256" \
   < "$ROOT_DIR/lib/remote-verification.sh" 2>/dev/null)" || die "Destination verification failed"
 
+source_permalink_mode="$(value_for "$source_output" permalink_mode)"
+destination_permalink_mode="$(value_for "$destination_output" permalink_mode)"
+source_permalink_sha="$(value_for "$source_output" permalink_sha256)"
+destination_permalink_sha="$(value_for "$destination_output" permalink_sha256)"
+permalink_check=no
+if [[ "$source_permalink_mode" == plain || "$source_permalink_mode" == pretty ]]; then
+  if [[ "$source_permalink_mode" == "$destination_permalink_mode" && "$source_permalink_sha" =~ ^[a-f0-9]{64}$ && "$source_permalink_sha" == "$destination_permalink_sha" ]]; then
+    permalink_check=yes
+  fi
+else
+  source_permalink_mode=unknown
+fi
 source_wordpress="$(value_for "$source_output" wordpress)"
 destination_wordpress="$(value_for "$destination_output" wordpress)"
 destination_home="$(value_for "$destination_output" home)"
@@ -175,11 +187,35 @@ if command -v curl >/dev/null 2>&1; then
 fi
 [[ "$http_status" =~ ^[0-9]{3}$ ]] || http_status=0
 
+page_url="$(value_for "$destination_output" page_url)"
+page_link_state=not_tested
+page_link_http_status=0
+page_links_check=null
+if [[ -n "$page_url" ]]; then
+  page_link_state=failed
+  page_links_check=false
+  # Only request the verified destination origin; redirects are not followed.
+  if php -r '
+    $expected = parse_url($argv[1]); $page = parse_url($argv[2]);
+    if (!is_array($expected) || !is_array($page)) exit(1);
+    foreach (["scheme", "host", "port"] as $key) {
+      if (($expected[$key] ?? null) !== ($page[$key] ?? null)) exit(1);
+    }
+    if (($page["scheme"] ?? "") !== "https" || isset($page["user"]) || isset($page["pass"]) || preg_match("/[\\x00-\\x20\\x7f]/", $argv[2])) exit(1);
+  ' "$expected_url" "$page_url"; then
+    page_link_http_status="$(curl --proto '=https' --tlsv1.2 -sS -o /dev/null -w '%{http_code}' --max-time 15 --max-redirs 0 "$page_url" 2>/dev/null || true)"
+    [[ "$page_link_http_status" =~ ^[0-9]{3}$ ]] || page_link_http_status=0
+    if [[ "$page_link_http_status" == 200 ]]; then page_link_state=working; page_links_check=true; fi
+  fi
+fi
+
 status=verified; reason=""
 for check in "$wordpress_check" "$urls_check" "$content_check" "$media_check" "$plugins_check" "$theme_check" \
-  "$administrator_check" "$serialized_urls_check" "$safety_check" "$rollback_check" "$public_https_check"; do
+  "$administrator_check" "$serialized_urls_check" "$safety_check" "$rollback_check" "$public_https_check" "$permalink_check"; do
   if [[ "$check" != yes ]]; then status=failed; reason=migration.destination_verification_failed; break; fi
 done
+
+if [[ "$page_link_state" == failed ]]; then status=failed; reason=migration.destination_verification_failed; fi
 
 if [[ "$json" == yes ]]; then
   printf '{"schema_version":1,"tool_version":"%s","run_id":"%s","status":"%s","reason_code":%s,"verified_at":"%s","checks":{' \
@@ -189,13 +225,13 @@ if [[ "$json" == yes ]]; then
   printf '"wordpress":%s,"urls":%s,"content":%s,"media":%s,"plugins":%s,"theme":%s,' \
     "$(bool_json "$wordpress_check")" "$(bool_json "$urls_check")" "$(bool_json "$content_check")" \
     "$(bool_json "$media_check")" "$(bool_json "$plugins_check")" "$(bool_json "$theme_check")"
-  printf '"administrator":%s,"serialized_urls":%s,"safety":%s,"rollback":%s,"public_https":%s},' \
+  printf '"administrator":%s,"serialized_urls":%s,"safety":%s,"rollback":%s,"public_https":%s,"permalink_mode":%s,"page_links":%s},' \
     "$(bool_json "$administrator_check")" "$(bool_json "$serialized_urls_check")" \
-    "$(bool_json "$safety_check")" "$(bool_json "$rollback_check")" "$(bool_json "$public_https_check")"
-  printf '"evidence":{"content_count":%s,"content_sha256":"%s","media_count":%s,"media_sha256":"%s","active_plugins_count":%s,"active_plugins_sha256":"%s","active_theme_sha256":"%s","administrator_count":%s,"http_status":%s,"safety_state":"%s","rollback_state":"%s"},' \
+    "$(bool_json "$safety_check")" "$(bool_json "$rollback_check")" "$(bool_json "$public_https_check")" "$(bool_json "$permalink_check")" "$page_links_check"
+  printf '"evidence":{"content_count":%s,"content_sha256":"%s","media_count":%s,"media_sha256":"%s","active_plugins_count":%s,"active_plugins_sha256":"%s","active_theme_sha256":"%s","administrator_count":%s,"http_status":%s,"safety_state":"%s","rollback_state":"%s","permalink_mode":"%s","page_link_state":"%s","page_link_http_status":%s},' \
     "${source_content_count:-0}" "${source_content_sha:-}" "${source_media_count:-0}" "${source_media_sha:-}" \
     "${source_plugins_count:-0}" "${source_plugins_sha:-}" "${source_theme_sha:-}" "${admin_count:-0}" "${http_status:-0}" \
-    "$safety_state" "$rollback_state"
+    "$safety_state" "$rollback_state" "$source_permalink_mode" "$page_link_state" "$page_link_http_status"
   printf '"normalization":{"profile_id":"%s","unknown_components_count":%s,"rules":[' \
     "$(json_escape "$normalization_profile")" "$normalization_unknown_count"
   first_rule=yes

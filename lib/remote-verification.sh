@@ -46,6 +46,10 @@ is_platform_plugin_excluded() {
 wp_site core is-installed >/dev/null 2>&1 || fail "WordPress does not bootstrap"
 home="$(wp_site option get home 2>/dev/null)" || fail "WordPress home is unavailable"
 siteurl="$(wp_site option get siteurl 2>/dev/null)" || fail "WordPress siteurl is unavailable"
+permalink_structure="$(wp_site option get permalink_structure 2>/dev/null)" || fail "WordPress permalink configuration is unavailable"
+permalink_mode=plain
+[[ -z "$permalink_structure" ]] || permalink_mode=pretty
+permalink_sha256="$(printf '%s' "$permalink_structure" | hash_stream)"
 [[ "$home" =~ ^https?://[^[:space:]]+$ && "$siteurl" =~ ^https?://[^[:space:]]+$ ]] || fail "WordPress URLs are invalid"
 
 content_json="$(wp_site post list \
@@ -97,6 +101,13 @@ active_plugins_digest="$(printf '%s' "$active_plugins" | hash_stream)"
 active_theme="$(wp_site theme list --status=active --field=name 2>/dev/null | LC_ALL=C sort)" || fail "active theme inventory is unavailable"
 active_theme_digest="$(printf '%s' "$active_theme" | hash_stream)"
 
+page_url=""
+if [[ "$role" == destination ]]; then
+  page_url="$(wp_site eval '$pages = get_posts(["post_type" => "page", "post_status" => "publish", "numberposts" => 1, "orderby" => "ID", "order" => "ASC"]); if ($pages) { echo get_permalink($pages[0]->ID); }' 2>/dev/null)" || fail "Published page URL is unavailable"
+  [[ "${#page_url}" -le 2048 ]] || fail "Published page URL exceeds the verification bound"
+  [[ "$page_url" != *$'\n'* && "$page_url" != *$'\r'* ]] || fail "Published page URL is invalid"
+fi
+
 safety_state=ignored
 rollback_state=not_checked
 old_url_matches=0
@@ -132,6 +143,8 @@ if [[ "$role" == destination ]]; then
   fi
 fi
 
+printf 'permalink_mode=%s\n' "$permalink_mode"
+printf 'permalink_sha256=%s\n' "$permalink_sha256"
 printf 'wordpress=installed\n'
 printf 'home=%s\n' "$home"
 printf 'siteurl=%s\n' "$siteurl"
@@ -146,3 +159,4 @@ printf 'active_theme_sha256=%s\n' "$active_theme_digest"
 printf 'old_url_matches=%s\n' "$old_url_matches"
 printf 'safety_state=%s\n' "$safety_state"
 printf 'rollback_state=%s\n' "$rollback_state"
+printf 'page_url=%s\n' "$page_url"

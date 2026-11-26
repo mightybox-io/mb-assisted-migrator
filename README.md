@@ -1146,3 +1146,21 @@ plugins, themes and users retain the existing migration policy. Exact loader and
 directory boundaries only; lookalikes remain blocked. Future acceptance must check
 destination updates and administrator access. This policy is not live-accepted and
 requires a reviewed engine commit and matching app pin before rollout.
+
+### Permalink preservation during relay verification
+
+Relay preflight reports the source permalink mode (`plain`, `pretty`, or `unknown`
+when it cannot be read). Independent relay verification requires the destination
+mode and a SHA-256 comparison of the structure to match the source; the receipt
+exposes only the mode and the comparison result, not the configured structure.
+Different pretty-link formats are a verification failure even when both sites
+use pretty permalinks.
+
+After URL replacement, the destination keeps its imported permalink setting.
+Pretty permalinks receive a soft rewrite-rule flush; plain permalinks skip it.
+An unreadable setting or failed required flush stops the operation. Independent verification also selects one published page and requests its canonical
+HTTPS URL on the exact destination origin, with a 15-second timeout and no
+redirect following. It records only working/failed/not-tested and HTTP status;
+no page content or URL enters the receipt. No published page is explicitly
+not-tested. Control-plane receipt integration and live acceptance remain required
+under MightyBox #2370.
