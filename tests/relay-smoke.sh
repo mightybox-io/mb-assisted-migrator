@@ -23,6 +23,7 @@ case "$*" in
   *'option get home --quiet'*|*'option get siteurl --quiet'*) exit 64 ;;
   *'core is-installed --network'*) exit 1 ;;
   *'core is-installed'*) exit 0 ;;
+  *'eval '*) [[ "${RELAY_NO_PAGE:-0}" == 1 ]] || printf '%s' "${RELAY_PAGE_URL:-https://source.example.test/?page_id=1}" ;;
   *'post list '*--format=count*) [[ "${RELAY_TARGET_MODIFIED:-0}" == 1 ]] && echo 4 || echo 2 ;;
   *'post list '*--format=json*) printf '[{"ID":1,"post_type":"page","post_status":"publish","post_name":"evidence","post_title":"Evidence","post_content":"Marker","post_excerpt":"","post_parent":0,"menu_order":0}]\n' ;;
   *'user list --role=administrator --format=count'*) echo 1 ;;
@@ -106,7 +107,7 @@ RSYNC
 cat > "$T/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -eu
-printf '200'
+if [[ "$*" == *'page_id='* ]]; then printf '%s' "${RELAY_PAGE_STATUS:-200}"; else printf '200'; fi
 CURL
 chmod +x "$T/bin/"*
 export RELAY_REAL_RSYNC="$REAL_RSYNC"
@@ -195,6 +196,20 @@ grep -q '"profile_id":"wp-engine-v1"' "$T/verified.json"
 grep -q '"rule_id":"wpengine.mu.wpengine-common-v1","outcome":"excluded"' "$T/verified.json"
 grep -q '"unknown_components_count":1' "$T/verified.json"
 grep -q '"permalink_mode":"plain"' "$T/verified.json"
+grep -q '"page_link_state":"working"' "$T/verified.json"
+RELAY_NO_PAGE=1 verify_relay > "$T/no-page.json"
+grep -q '"page_links":null' "$T/no-page.json"
+if RELAY_PAGE_URL=https://other.example.test/page verify_relay > "$T/foreign-page.json"; then
+  echo 'Foreign page URL unexpectedly verified' >&2; exit 1
+fi
+grep -q '"page_links":false' "$T/foreign-page.json"
+if RELAY_PAGE_STATUS=404 verify_relay > "$T/broken-page.json"; then
+  echo 'Broken canonical page unexpectedly verified' >&2; exit 1
+fi
+grep -q '"page_link_state":"failed"' "$T/broken-page.json"
+grep -q '"page_link_http_status":404' "$T/broken-page.json"
+
+
 RELAY_PERMALINK_STRUCTURE='/%postname%/' verify_relay > "$T/pretty.json"
 grep -q '"permalink_mode":"pretty"' "$T/pretty.json"
 if RELAY_PERMALINK_STRUCTURE='/%postname%/' RELAY_PERMALINK_MISMATCH=1 verify_relay > "$T/mode-mismatch.json"; then

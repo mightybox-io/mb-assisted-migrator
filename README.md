@@ -1158,7 +1158,9 @@ use pretty permalinks.
 
 After URL replacement, the destination keeps its imported permalink setting.
 Pretty permalinks receive a soft rewrite-rule flush; plain permalinks skip it.
-An unreadable setting or failed required flush stops the operation. This check
-establishes configuration preservation, not that a public page loads; the
-functional page-link probe and its migration receipt integration remain separate
-acceptance requirements under MightyBox #2370.
+An unreadable setting or failed required flush stops the operation. Independent verification also selects one published page and requests its canonical
+HTTPS URL on the exact destination origin, with a 15-second timeout and no
+redirect following. It records only working/failed/not-tested and HTTP status;
+no page content or URL enters the receipt. No published page is explicitly
+not-tested. Control-plane receipt integration and live acceptance remain required
+under MightyBox #2370.

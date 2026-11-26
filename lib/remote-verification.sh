@@ -101,6 +101,13 @@ active_plugins_digest="$(printf '%s' "$active_plugins" | hash_stream)"
 active_theme="$(wp_site theme list --status=active --field=name 2>/dev/null | LC_ALL=C sort)" || fail "active theme inventory is unavailable"
 active_theme_digest="$(printf '%s' "$active_theme" | hash_stream)"
 
+page_url=""
+if [[ "$role" == destination ]]; then
+  page_url="$(wp_site eval '$pages = get_posts(["post_type" => "page", "post_status" => "publish", "numberposts" => 1, "orderby" => "ID", "order" => "ASC"]); if ($pages) { echo get_permalink($pages[0]->ID); }' 2>/dev/null)" || fail "Published page URL is unavailable"
+  [[ "${#page_url}" -le 2048 ]] || fail "Published page URL exceeds the verification bound"
+  [[ "$page_url" != *$'\n'* && "$page_url" != *$'\r'* ]] || fail "Published page URL is invalid"
+fi
+
 safety_state=ignored
 rollback_state=not_checked
 old_url_matches=0
@@ -152,3 +159,4 @@ printf 'active_theme_sha256=%s\n' "$active_theme_digest"
 printf 'old_url_matches=%s\n' "$old_url_matches"
 printf 'safety_state=%s\n' "$safety_state"
 printf 'rollback_state=%s\n' "$rollback_state"
+printf 'page_url=%s\n' "$page_url"
