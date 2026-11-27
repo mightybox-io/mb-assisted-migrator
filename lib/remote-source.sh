@@ -197,7 +197,7 @@ check_database_export() {
 }
 
 normalization_scan() {
-  local token rule_id relative_path item item_relative matched
+  local token rule_id relative_path item item_relative matched listing
   local -a known_paths=()
   local -a present_rules=()
   local unknown_count=0
@@ -215,14 +215,20 @@ normalization_scan() {
   done
 
   if [[ "$normalization_profile" != none && -d "$source_root/wp-content/mu-plugins" ]]; then
-    while IFS= read -r item; do
-      item_relative="mu-plugins/$(basename "$item")"
+    listing="$(mktemp "${TMPDIR:-/tmp}/mb-migrator-normalization.XXXXXX")"
+    if ! find "$source_root/wp-content/mu-plugins" -mindepth 1 -maxdepth 1 -print0 > "$listing"; then
+      rm -f "$listing"
+      fail "could not enumerate source must-use plugins"
+    fi
+    while IFS= read -r -d '' item; do
+      item_relative="mu-plugins/${item##*/}"
       matched=no
       for relative_path in "${known_paths[@]}"; do
         if [[ "$item_relative" == "$relative_path" ]]; then matched=yes; break; fi
       done
       [[ "$matched" == yes ]] || unknown_count=$((unknown_count + 1))
-    done < <(find "$source_root/wp-content/mu-plugins" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+    done < "$listing"
+    rm -f "$listing"
   fi
 
   printf 'normalization_profile=%s\n' "$normalization_profile"
@@ -250,13 +256,21 @@ is_migration_artifact_root_file() {
 }
 
 archive_files() {
-  local include_content="$1" item name tar_status=0 tar_errors
+  local include_content="$1" item name tar_status=0 tar_errors listing
   local paths=()
   [[ "$include_content" -eq 0 ]] || paths+=("wp-content")
-  while IFS= read -r item; do
+  # A managed shell may have no /dev/fd. Use a regular NUL-delimited file,
+  # preserving arbitrary root filenames without process substitution.
+  listing="$(mktemp "${TMPDIR:-/tmp}/mb-migrator-root-files.XXXXXX")"
+  if ! (cd "$source_root" && find . -mindepth 1 -maxdepth 1 -type f -print0) > "$listing"; then
+    rm -f "$listing"
+    fail "could not enumerate source root files"
+  fi
+  while IFS= read -r -d '' item; do
     name="${item#./}"
     is_core_root_file "$name" || is_migration_artifact_root_file "$name" || paths+=("$name")
-  done < <(cd "$source_root" && find . -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)
+  done < "$listing"
+  rm -f "$listing"
   tar_errors="$(mktemp "${TMPDIR:-/tmp}/mb-migrator-tar-errors.XXXXXX")"
   trap 'rm -f "$tar_errors"' RETURN
   if [[ "${#paths[@]}" -gt 0 ]]; then

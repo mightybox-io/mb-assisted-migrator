@@ -1164,3 +1164,7 @@ redirect following. It records only working/failed/not-tested and HTTP status;
 no page content or URL enters the receipt. No published page is explicitly
 not-tested. Control-plane receipt integration and live acceptance remain required
 under MightyBox #2370.
+
+### Managed shell file collection
+
+Source collection and normalization scanning use regular temporary files with NUL-delimited directory entries, so managed SSH shells do not need `/dev/fd`. Root extras retain whitespace and newline characters; core files, migration artifacts, and root symlinks remain excluded. `tests/managed-shell-smoke.sh` exercises these boundaries; pass `--require-no-dev-fd` inside a restricted filesystem namespace to require the managed-shell condition. Relay verification and safety release use ordinary files and pipes on the remote host; profile argument construction runs on the intermediary.
