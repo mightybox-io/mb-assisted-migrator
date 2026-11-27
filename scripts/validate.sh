@@ -48,6 +48,7 @@ smoke_suites=(
   tests/archive-relay-smoke.sh
   tests/smoke.sh
   tests/live-smoke.sh
+  tests/managed-shell-smoke.sh
   tests/native-db-smoke.sh
   tests/package-smoke.sh
   tests/portability-smoke.sh
